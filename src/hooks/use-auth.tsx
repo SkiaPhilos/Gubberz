@@ -13,8 +13,11 @@ export function useAuth() {
       return;
     }
 
-    // 1. Check environment variable (VITE_ADMIN_EMAILS)
-    const adminEmails = (import.meta.env["VITE_ADMIN_EMAILS"] || "")
+    // 1. Check environment variable (VITE_ADMIN_EMAILS) or default admin email
+    const adminEmails = (
+      import.meta.env["VITE_ADMIN_EMAILS"] ||
+      "isb.rwp.1.pstofficer@gmail.com"
+    )
       .split(",")
       .map((e: string) => e.trim().toLowerCase())
       .filter(Boolean);
@@ -54,15 +57,15 @@ export function useAuth() {
     });
 
     // Subscribe to auth state updates
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
-        if (!mounted) return;
-        const currentUser = session?.user ?? null;
-        setUser(currentUser);
-        await checkAdminStatus(currentUser);
-        setIsLoading(false);
-      },
-    );
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (!mounted) return;
+      const currentUser = session?.user ?? null;
+      setUser(currentUser);
+      await checkAdminStatus(currentUser);
+      setIsLoading(false);
+    });
 
     return () => {
       mounted = false;

@@ -107,7 +107,10 @@ function AuthCallbackPage() {
         navigate({ to: destination as any });
       } else {
         // Check if user is admin via VITE_ADMIN_EMAILS or Supabase user_roles
-        const adminEmails = (import.meta.env["VITE_ADMIN_EMAILS"] || "")
+        const adminEmails = (
+          import.meta.env["VITE_ADMIN_EMAILS"] ||
+          "isb.rwp.1.pstofficer@gmail.com"
+        )
           .split(",")
           .map((e: string) => e.trim().toLowerCase())
           .filter(Boolean);

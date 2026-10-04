@@ -33,7 +33,10 @@ const sectionSchema = z.object({
 });
 
 function getAdminEmails(): string[] {
-  const envEmails = process.env["ADMIN_EMAILS"] || process.env["VITE_ADMIN_EMAILS"] || "";
+  const envEmails =
+    process.env["ADMIN_EMAILS"] ||
+    process.env["VITE_ADMIN_EMAILS"] ||
+    "isb.rwp.1.pstofficer@gmail.com";
   return envEmails
     .split(",")
     .map((e) => e.trim().toLowerCase())
@@ -52,9 +55,7 @@ async function checkAdminRole(context: {
   if (userEmail && adminEmails.includes(userEmail)) {
     // Ensure they have the admin role row in user_roles table so DB policies pass
     try {
-      await context.supabase
-        .from("user_roles")
-        .upsert({ user_id: context.userId, role: "admin" });
+      await context.supabase.from("user_roles").upsert({ user_id: context.userId, role: "admin" });
     } catch {}
     return true;
   }
@@ -218,10 +219,7 @@ export const saveCategory = createServerFn({ method: "POST" })
     };
 
     if (data.id) {
-      const { error } = await context.supabase
-        .from("categories")
-        .update(payload)
-        .eq("id", data.id);
+      const { error } = await context.supabase.from("categories").update(payload).eq("id", data.id);
       if (error) throw new Error(error.message);
     } else {
       const { error } = await context.supabase.from("categories").insert(payload);
@@ -326,10 +324,7 @@ export const saveProduct = createServerFn({ method: "POST" })
     };
 
     if (data.id) {
-      const { error } = await context.supabase
-        .from("products")
-        .update(payload)
-        .eq("id", data.id);
+      const { error } = await context.supabase.from("products").update(payload).eq("id", data.id);
       if (error) throw new Error(error.message);
     } else {
       const { error } = await context.supabase.from("products").insert(payload);
