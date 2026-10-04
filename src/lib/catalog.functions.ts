@@ -3,14 +3,22 @@ import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import type { Database } from "@/integrations/supabase/types";
 
+const DEFAULT_SUPABASE_URL = "https://csvnjedaklqwgwyeidkm.supabase.co";
+const DEFAULT_SUPABASE_KEY = "sb_publishable_p_FlIPIEnKJ49VbCeRsjzA_0MVh3gR9";
+
 function publicClient() {
-  const url = process.env["SUPABASE_URL"] || process.env["VITE_SUPABASE_URL"] || "";
+  const url =
+    process.env["SUPABASE_URL"] ||
+    process.env["VITE_SUPABASE_URL"] ||
+    DEFAULT_SUPABASE_URL;
+
   const key =
     process.env["SUPABASE_PUBLISHABLE_KEY"] ||
     process.env["SUPABASE_ANON_KEY"] ||
     process.env["VITE_SUPABASE_PUBLISHABLE_KEY"] ||
     process.env["VITE_SUPABASE_ANON_KEY"] ||
-    "";
+    DEFAULT_SUPABASE_KEY;
+
   return createClient<Database>(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
     global: {
@@ -52,8 +60,18 @@ export type Product = {
 export type Category = { id: string; name: string; slug: string; blurb: string | null };
 
 export const DEFAULT_CATEGORIES: Category[] = [
-  { id: "cat-audio", name: "Audio", slug: "audio", blurb: "Things that go in, on or near your ears." },
-  { id: "cat-power", name: "Power", slug: "power", blurb: "Chargers and power banks. Juice, basically." },
+  {
+    id: "cat-audio",
+    name: "Audio",
+    slug: "audio",
+    blurb: "Things that go in, on or near your ears.",
+  },
+  {
+    id: "cat-power",
+    name: "Power",
+    slug: "power",
+    blurb: "Chargers and power banks. Juice, basically.",
+  },
   { id: "cat-desk", name: "Desk", slug: "desk", blurb: "Keyboards, mice and desk things." },
   { id: "cat-cables", name: "Cables", slug: "cables", blurb: "The spaghetti of modern life." },
 ];
@@ -66,14 +84,20 @@ export const DEFAULT_PRODUCTS: Product[] = [
     sku: "GBZ-AUD-001",
     brand: "Gubberz Audio",
     short_description: "Over-ear, noise cancelling, 40h battery",
-    description: "Big soft cushions, serious noise cancelling and a battery that outlasts your attention span.",
+    description:
+      "Big soft cushions, serious noise cancelling and a battery that outlasts your attention span.",
     price: 18999,
     sale_price: 15999,
     stock: 12,
     low_stock_threshold: 3,
     images: ["headphones"],
     specs: { Battery: "40 hours", Connection: "Bluetooth 5.3", Weight: "250 g", Charging: "USB-C" },
-    features: ["Active noise cancelling", "40-hour battery", "Fold-flat design", "Multipoint pairing"],
+    features: [
+      "Active noise cancelling",
+      "40-hour battery",
+      "Fold-flat design",
+      "Multipoint pairing",
+    ],
     tags: ["wireless", "anc"],
     featured: true,
     created_at: new Date().toISOString(),
@@ -146,7 +170,8 @@ export const DEFAULT_PRODUCTS: Product[] = [
     sku: "GBZ-PWR-002",
     brand: "Zap",
     short_description: "20,000 mAh, 22.5W fast charge",
-    description: "Charges your phone about four times. Heavier than a sandwich, lighter than regret.",
+    description:
+      "Charges your phone about four times. Heavier than a sandwich, lighter than regret.",
     price: 6499,
     sale_price: 5499,
     stock: 5,
@@ -354,31 +379,42 @@ const DEFAULT_ACCOUNTS: PaymentAccount[] = [
 ];
 
 export const getStoreSettings = createServerFn({ method: "GET" }).handler(async () => {
-  const { data } = await publicClient().from("store_settings").select("key,value");
-  const map: Record<string, unknown> = {};
-  for (const r of data ?? []) map[r.key] = r.value;
-  const accountsFromDb = Array.isArray(map["payment_methods"])
-    ? (map["payment_methods"] as PaymentAccount[])
-    : [];
+  try {
+    const { data } = await publicClient().from("store_settings").select("key,value");
+    const map: Record<string, unknown> = {};
+    for (const r of data ?? []) map[r.key] = r.value;
+    const accountsFromDb = Array.isArray(map["payment_methods"])
+      ? (map["payment_methods"] as PaymentAccount[])
+      : [];
 
-  // Merge DB accounts with full Phase 2 payment method placeholders
-  const mergedAccounts: PaymentAccount[] = [...DEFAULT_ACCOUNTS];
-  for (const dbAcc of accountsFromDb) {
-    const idx = mergedAccounts.findIndex((a) => a.id === dbAcc.id);
-    if (idx >= 0) {
-      mergedAccounts[idx] = { ...dbAcc, isPlaceholder: false };
-    } else {
-      mergedAccounts.push(dbAcc);
+    // Merge DB accounts with full Phase 2 payment method placeholders
+    const mergedAccounts: PaymentAccount[] = [...DEFAULT_ACCOUNTS];
+    for (const dbAcc of accountsFromDb) {
+      const idx = mergedAccounts.findIndex((a) => a.id === dbAcc.id);
+      if (idx >= 0) {
+        mergedAccounts[idx] = { ...dbAcc, isPlaceholder: false };
+      } else {
+        mergedAccounts.push(dbAcc);
+      }
     }
-  }
 
-  return {
-    whatsapp: String(map["whatsapp_number"] ?? "923274393495"),
-    email: String(map["contact_email"] ?? "maniacphilos@gmail.com"),
-    advanceDiscount: Number(map["advance_payment_discount_percent"] ?? 5),
-    deliveryFee: Number(map["delivery_fee"] ?? 250),
-    accounts: mergedAccounts.filter((a) => a.enabled),
-  };
+    return {
+      whatsapp: String(map["whatsapp_number"] ?? "923274393495"),
+      email: String(map["contact_email"] ?? "maniacphilos@gmail.com"),
+      advanceDiscount: Number(map["advance_payment_discount_percent"] ?? 5),
+      deliveryFee: Number(map["delivery_fee"] ?? 250),
+      accounts: mergedAccounts.filter((a) => a.enabled),
+    };
+  } catch (err) {
+    console.warn("Could not load store settings from database, using defaults:", err);
+    return {
+      whatsapp: "923274393495",
+      email: "maniacphilos@gmail.com",
+      advanceDiscount: 5,
+      deliveryFee: 250,
+      accounts: DEFAULT_ACCOUNTS.filter((a) => a.enabled),
+    };
+  }
 });
 
 const orderSchema = z.object({

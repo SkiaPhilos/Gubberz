@@ -23,14 +23,22 @@ export type HomeSection = {
   settings: Json;
 };
 
+const DEFAULT_SUPABASE_URL = "https://csvnjedaklqwgwyeidkm.supabase.co";
+const DEFAULT_SUPABASE_KEY = "sb_publishable_p_FlIPIEnKJ49VbCeRsjzA_0MVh3gR9";
+
 function publicClient() {
-  const url = process.env["SUPABASE_URL"] || process.env["VITE_SUPABASE_URL"] || "";
+  const url =
+    process.env["SUPABASE_URL"] ||
+    process.env["VITE_SUPABASE_URL"] ||
+    DEFAULT_SUPABASE_URL;
+
   const key =
     process.env["SUPABASE_PUBLISHABLE_KEY"] ||
     process.env["SUPABASE_ANON_KEY"] ||
     process.env["VITE_SUPABASE_PUBLISHABLE_KEY"] ||
     process.env["VITE_SUPABASE_ANON_KEY"] ||
-    "";
+    DEFAULT_SUPABASE_KEY;
+
   return createClient<Database>(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
     global: {
@@ -126,7 +134,12 @@ export const DEFAULT_HOME_SECTIONS: HomeSection[] = [
     body: "Fast-moving items with high stock turnover.",
     media_key: null,
     character_key: null,
-    product_slugs: ["boombox-mini-speaker", "brick-20k-power-bank", "pebble-buds", "noodle-usb-c-cable"],
+    product_slugs: [
+      "boombox-mini-speaker",
+      "brick-20k-power-bank",
+      "pebble-buds",
+      "noodle-usb-c-cable",
+    ],
     category_slugs: [],
     cta_label: "View All",
     cta_href: "/shop",
