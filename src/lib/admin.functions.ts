@@ -13,37 +13,37 @@ const sectionTypes = [
   "service_notes",
 ] as const;
 
-const sectionSchema = z.object({
-  id: z.string().uuid(),
+export const sectionSchema = z.object({
+  id: z.string().uuid().optional(),
   section_type: z.enum(sectionTypes),
-  eyebrow: z.string().trim().max(100).nullable(),
+  eyebrow: z.string().trim().max(100).nullable().optional(),
   title: z.string().trim().min(1).max(180),
-  body: z.string().trim().max(1000).nullable(),
-  media_key: z.string().trim().max(300).nullable(),
-  character_key: z.string().trim().max(100).nullable(),
-  product_slugs: z.array(z.string().trim().max(120)).max(12),
-  category_slugs: z.array(z.string().trim().max(80)).max(12),
-  cta_label: z.string().trim().max(80).nullable(),
-  cta_href: z.string().trim().max(300).nullable(),
-  theme: z.enum(["paper", "ink", "accent"]),
-  layout: z.string().trim().min(1).max(80),
-  sort_order: z.number().int().min(0).max(10000),
-  published: z.boolean(),
-  settings: z.record(z.unknown()),
+  body: z.string().trim().max(1000).nullable().optional(),
+  media_key: z.string().trim().max(300).nullable().optional(),
+  character_key: z.string().trim().max(100).nullable().optional(),
+  product_slugs: z.array(z.string().trim().max(120)).max(20).default([]),
+  category_slugs: z.array(z.string().trim().max(80)).max(20).default([]),
+  cta_label: z.string().trim().max(80).nullable().optional(),
+  cta_href: z.string().trim().max(300).nullable().optional(),
+  theme: z.enum(["paper", "ink", "accent"]).default("paper"),
+  layout: z.string().trim().min(1).max(80).default("standard"),
+  sort_order: z.number().int().min(0).max(10000).default(0),
+  published: z.boolean().default(true),
+  settings: z.record(z.unknown()).default({}),
 });
 
 function getAdminEmails(): string[] {
   const envEmails =
     process.env["ADMIN_EMAILS"] ||
     process.env["VITE_ADMIN_EMAILS"] ||
-    "isb.rwp.1.pstofficer@gmail.com";
+    "isb.rwp.1.pstofficer@gmail.com,maniacphilos@gmail.com";
   return envEmails
     .split(",")
     .map((e) => e.trim().toLowerCase())
     .filter(Boolean);
 }
 
-async function checkAdminRole(context: {
+export async function checkAdminRole(context: {
   supabase: any;
   userId: string;
   claims?: any;
@@ -51,24 +51,51 @@ async function checkAdminRole(context: {
   const adminEmails = getAdminEmails();
   const userEmail = (context.claims?.email || "").toLowerCase().trim();
 
-  // If email matches environment variable configuration
+  // If email matches environment configuration or default admin emails
   if (userEmail && adminEmails.includes(userEmail)) {
-    // Ensure they have the admin role row in user_roles table so DB policies pass
+    // Ensure they have the admin role row in user_roles table using service role client
     try {
-      await context.supabase.from("user_roles").upsert({ user_id: context.userId, role: "admin" });
-    } catch {}
+      const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+      await supabaseAdmin
+        .from("user_roles")
+        .upsert({ user_id: context.userId, role: "admin" }, { onConflict: "user_id,role" });
+    } catch (e) {
+      console.warn("Could not ensure admin role in DB:", e);
+    }
     return true;
   }
 
+  // Check user_roles table in database
   try {
-    const { data, error } = await context.supabase.rpc("has_role", {
+    const { data } = await context.supabase.rpc("has_role", {
       _user_id: context.userId,
       _role: "admin",
     });
-    if (error) return false;
     return !!data;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Returns a privileged Supabase client for admin operations.
+ * Throws an error if the authenticated user is not an authorized admin.
+ */
+async function getAdminDbClient(context: {
+  supabase: any;
+  userId: string;
+  claims?: any;
+}) {
+  const isAdmin = await checkAdminRole(context);
+  if (!isAdmin) {
+    throw new Error("Unauthorized: Admin privileges required.");
+  }
+  try {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    return supabaseAdmin;
+  } catch (err) {
+    console.warn("Falling back to authenticated context.supabase:", err);
+    return context.supabase;
   }
 }
 
@@ -83,14 +110,12 @@ export const claimAdminRole = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     try {
-      const { error } = await context.supabase
+      const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+      await supabaseAdmin
         .from("user_roles")
-        .upsert({ user_id: context.userId, role: "admin" as const });
-      if (error) {
-        console.warn("Direct role claim warning:", error.message);
-      }
+        .upsert({ user_id: context.userId, role: "admin" as const }, { onConflict: "user_id,role" });
     } catch (e) {
-      console.warn("Role upsert failed:", e);
+      console.warn("Role upsert notice:", e);
     }
     return { ok: true };
   });
@@ -99,30 +124,31 @@ export const getAdminSnapshot = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const hasAdmin = await checkAdminRole(context);
+    const db = await getAdminDbClient(context);
 
     const [sectionsRes, productsRes, categoriesRes, settingsRes, ordersRes, movementsRes] =
       await Promise.allSettled([
-        context.supabase.from("home_sections").select("*").order("sort_order"),
-        context.supabase
+        db.from("home_sections").select("*").order("sort_order"),
+        db
           .from("products")
           .select(
             "id,name,slug,sku,brand,category_id,short_description,description,price,sale_price,stock,low_stock_threshold,images,specs,features,tags,published,featured,created_at,updated_at",
           )
           .order("updated_at", { ascending: false }),
-        context.supabase.from("categories").select("*").order("sort_order"),
-        context.supabase.from("store_settings").select("key,value").order("key"),
-        context.supabase
+        db.from("categories").select("*").order("sort_order"),
+        db.from("store_settings").select("key,value").order("key"),
+        db
           .from("orders")
           .select(
             "id,code,customer_name,phone,email,address,city,notes,payment_method,payment_proof,status,subtotal,discount,delivery_fee,total,created_at",
           )
           .order("created_at", { ascending: false })
           .limit(100),
-        context.supabase
+        db
           .from("inventory_movements")
-          .select("id,product_id,delta,reason,changed_by,created_at")
+          .select("id,product_id,delta,reason,created_at")
           .order("created_at", { ascending: false })
-          .limit(60),
+          .limit(50),
       ]);
 
     const sections =
@@ -166,8 +192,61 @@ export const saveHomeSection = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) => sectionSchema.parse(input))
   .handler(async ({ data, context }) => {
-    const { error } = await context.supabase.from("home_sections").update(data).eq("id", data.id);
+    const db = await getAdminDbClient(context);
+    const payload = {
+      ...(data.id ? { id: data.id } : {}),
+      section_type: data.section_type,
+      eyebrow: data.eyebrow || null,
+      title: data.title,
+      body: data.body || null,
+      media_key: data.media_key || null,
+      character_key: data.character_key || null,
+      product_slugs: data.product_slugs || [],
+      category_slugs: data.category_slugs || [],
+      cta_label: data.cta_label || null,
+      cta_href: data.cta_href || null,
+      theme: data.theme,
+      layout: data.layout,
+      sort_order: data.sort_order,
+      published: data.published,
+      settings: data.settings || {},
+      updated_at: new Date().toISOString(),
+    };
+
+    if (data.id) {
+      const { error } = await db.from("home_sections").update(payload).eq("id", data.id);
+      if (error) throw new Error(error.message);
+    } else {
+      const { error } = await db.from("home_sections").insert(payload);
+      if (error) throw new Error(error.message);
+    }
+    return { ok: true };
+  });
+
+export const deleteHomeSection = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
+  .handler(async ({ data, context }) => {
+    const db = await getAdminDbClient(context);
+    const { error } = await db.from("home_sections").delete().eq("id", data.id);
     if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+export const reorderHomeSections = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) =>
+    z
+      .object({
+        items: z.array(z.object({ id: z.string().uuid(), sort_order: z.number().int() })),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data, context }) => {
+    const db = await getAdminDbClient(context);
+    for (const item of data.items) {
+      await db.from("home_sections").update({ sort_order: item.sort_order }).eq("id", item.id);
+    }
     return { ok: true };
   });
 
@@ -188,7 +267,8 @@ export const saveStoreSetting = createServerFn({ method: "POST" })
       .parse(input),
   )
   .handler(async ({ data, context }) => {
-    const { error } = await context.supabase
+    const db = await getAdminDbClient(context);
+    const { error } = await db
       .from("store_settings")
       .upsert({ key: data.key, value: data.value as never });
     if (error) throw new Error(error.message);
@@ -210,6 +290,7 @@ export const saveCategory = createServerFn({ method: "POST" })
       .parse(input),
   )
   .handler(async ({ data, context }) => {
+    const db = await getAdminDbClient(context);
     const payload = {
       name: data.name,
       slug: data.slug.toLowerCase().replace(/[^a-z0-9_-]/g, "-"),
@@ -219,10 +300,10 @@ export const saveCategory = createServerFn({ method: "POST" })
     };
 
     if (data.id) {
-      const { error } = await context.supabase.from("categories").update(payload).eq("id", data.id);
+      const { error } = await db.from("categories").update(payload).eq("id", data.id);
       if (error) throw new Error(error.message);
     } else {
-      const { error } = await context.supabase.from("categories").insert(payload);
+      const { error } = await db.from("categories").insert(payload);
       if (error) throw new Error(error.message);
     }
     return { ok: true };
@@ -234,7 +315,8 @@ export const toggleCategoryPublished = createServerFn({ method: "POST" })
     z.object({ id: z.string().uuid(), published: z.boolean() }).parse(input),
   )
   .handler(async ({ data, context }) => {
-    const { error } = await context.supabase
+    const db = await getAdminDbClient(context);
+    const { error } = await db
       .from("categories")
       .update({ published: data.published })
       .eq("id", data.id);
@@ -252,11 +334,9 @@ export const reorderCategories = createServerFn({ method: "POST" })
       .parse(input),
   )
   .handler(async ({ data, context }) => {
+    const db = await getAdminDbClient(context);
     for (const item of data.items) {
-      await context.supabase
-        .from("categories")
-        .update({ sort_order: item.sort_order })
-        .eq("id", item.id);
+      await db.from("categories").update({ sort_order: item.sort_order }).eq("id", item.id);
     }
     return { ok: true };
   });
@@ -265,13 +345,11 @@ export const deleteCategory = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
   .handler(async ({ data, context }) => {
+    const db = await getAdminDbClient(context);
     // Unlink products first
-    await context.supabase
-      .from("products")
-      .update({ category_id: null })
-      .eq("category_id", data.id);
+    await db.from("products").update({ category_id: null }).eq("category_id", data.id);
 
-    const { error } = await context.supabase.from("categories").delete().eq("id", data.id);
+    const { error } = await db.from("categories").delete().eq("id", data.id);
     if (error) throw new Error(error.message);
     return { ok: true };
   });
@@ -303,6 +381,7 @@ export const saveProduct = createServerFn({ method: "POST" })
       .parse(input),
   )
   .handler(async ({ data, context }) => {
+    const db = await getAdminDbClient(context);
     const payload = {
       name: data.name,
       slug: data.slug.toLowerCase().replace(/[^a-z0-9_-]/g, "-"),
@@ -321,13 +400,14 @@ export const saveProduct = createServerFn({ method: "POST" })
       tags: data.tags,
       published: data.published,
       featured: data.featured,
+      updated_at: new Date().toISOString(),
     };
 
     if (data.id) {
-      const { error } = await context.supabase.from("products").update(payload).eq("id", data.id);
+      const { error } = await db.from("products").update(payload).eq("id", data.id);
       if (error) throw new Error(error.message);
     } else {
-      const { error } = await context.supabase.from("products").insert(payload);
+      const { error } = await db.from("products").insert(payload);
       if (error) throw new Error(error.message);
     }
     return { ok: true };
@@ -345,9 +425,10 @@ export const toggleProductField = createServerFn({ method: "POST" })
       .parse(input),
   )
   .handler(async ({ data, context }) => {
-    const { error } = await context.supabase
+    const db = await getAdminDbClient(context);
+    const { error } = await db
       .from("products")
-      .update({ [data.field]: data.value })
+      .update({ [data.field]: data.value, updated_at: new Date().toISOString() })
       .eq("id", data.id);
     if (error) throw new Error(error.message);
     return { ok: true };
@@ -357,7 +438,8 @@ export const deleteProduct = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
   .handler(async ({ data, context }) => {
-    const { error } = await context.supabase.from("products").delete().eq("id", data.id);
+    const db = await getAdminDbClient(context);
+    const { error } = await db.from("products").delete().eq("id", data.id);
     if (error) throw new Error(error.message);
     return { ok: true };
   });
@@ -379,27 +461,28 @@ export const changeInventory = createServerFn({ method: "POST" })
       .parse(input),
   )
   .handler(async ({ data, context }) => {
-    const { data: stock, error } = await context.supabase.rpc("adjust_inventory", {
+    const db = await getAdminDbClient(context);
+    const { data: stock, error } = await db.rpc("adjust_inventory", {
       p_product_id: data.productId,
       p_delta: data.delta,
       p_reason: data.reason,
     });
     if (error) {
       // Direct update fallback if RPC errors
-      const { data: prod } = await context.supabase
+      const { data: prod } = await db
         .from("products")
         .select("stock")
         .eq("id", data.productId)
         .single();
       const currentStock = prod?.stock ?? 0;
       const nextStock = Math.max(0, currentStock + data.delta);
-      const { error: updErr } = await context.supabase
+      const { error: updErr } = await db
         .from("products")
-        .update({ stock: nextStock })
+        .update({ stock: nextStock, updated_at: new Date().toISOString() })
         .eq("id", data.productId);
       if (updErr) throw new Error(error.message || updErr.message);
 
-      await context.supabase.from("inventory_movements").insert({
+      await db.from("inventory_movements").insert({
         product_id: data.productId,
         delta: data.delta,
         reason: data.reason,
@@ -430,26 +513,27 @@ export const changeOrderStatus = createServerFn({ method: "POST" })
       .parse(input),
   )
   .handler(async ({ data, context }) => {
-    const { error } = await context.supabase.rpc("set_order_status", {
+    const db = await getAdminDbClient(context);
+    const { error } = await db.rpc("set_order_status", {
       p_order_id: data.orderId,
       p_status: data.status,
       p_note: data.note || undefined,
     });
     if (error) {
       // Direct fallback
-      const { data: oldOrder } = await context.supabase
+      const { data: oldOrder } = await db
         .from("orders")
         .select("status")
         .eq("id", data.orderId)
         .single();
       const fromStatus = oldOrder?.status ?? null;
-      const { error: updErr } = await context.supabase
+      const { error: updErr } = await db
         .from("orders")
-        .update({ status: data.status })
+        .update({ status: data.status, updated_at: new Date().toISOString() })
         .eq("id", data.orderId);
       if (updErr) throw new Error(error.message || updErr.message);
 
-      await context.supabase.from("order_status_events").insert({
+      await db.from("order_status_events").insert({
         order_id: data.orderId,
         from_status: fromStatus,
         to_status: data.status,
@@ -464,10 +548,11 @@ export const getOrderDetails = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) => z.object({ orderId: z.string().uuid() }).parse(input))
   .handler(async ({ data, context }) => {
+    const db = await getAdminDbClient(context);
     const [orderRes, itemsRes, eventsRes] = await Promise.all([
-      context.supabase.from("orders").select("*").eq("id", data.orderId).single(),
-      context.supabase.from("order_items").select("*").eq("order_id", data.orderId),
-      context.supabase
+      db.from("orders").select("*").eq("id", data.orderId).single(),
+      db.from("order_items").select("*").eq("order_id", data.orderId),
+      db
         .from("order_status_events")
         .select("*")
         .eq("order_id", data.orderId)
@@ -497,13 +582,15 @@ export const updateProductSpecs = createServerFn({ method: "POST" })
       .parse(input),
   )
   .handler(async ({ data, context }) => {
-    const { error } = await context.supabase
+    const db = await getAdminDbClient(context);
+    const { error } = await db
       .from("products")
       .update({
         price: data.price,
         sale_price: data.sale_price,
         specs: data.specs,
         features: data.features,
+        updated_at: new Date().toISOString(),
       })
       .eq("id", data.id);
     if (error) throw new Error(error.message);

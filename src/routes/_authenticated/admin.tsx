@@ -40,9 +40,11 @@ import {
   claimAdminRole,
   deleteCategory,
   deleteProduct,
+  deleteHomeSection,
   getAdminSnapshot,
   getOrderDetails,
   reorderCategories,
+  reorderHomeSections,
   saveCategory,
   saveHomeSection,
   saveProduct,
@@ -110,6 +112,37 @@ function AdminDashboard() {
     },
     onError: (err: any) => toast.error(err.message || "Failed to save section"),
   });
+
+  const deleteSectionMutation = useMutation({
+    mutationFn: (id: string) => deleteHomeSection({ data: { id } }),
+    onSuccess: () => {
+      toast.success("Section removed!");
+      queryClient.invalidateQueries({ queryKey: ["admin-snapshot"] });
+      queryClient.invalidateQueries({ queryKey: ["home-sections"] });
+    },
+    onError: (err: any) => toast.error(err.message || "Failed to delete section"),
+  });
+
+  const reorderSectionsMutation = useMutation({
+    mutationFn: (items: Array<{ id: string; sort_order: number }>) =>
+      reorderHomeSections({ data: { items } }),
+    onSuccess: () => {
+      toast.success("Layout order updated!");
+      queryClient.invalidateQueries({ queryKey: ["admin-snapshot"] });
+      queryClient.invalidateQueries({ queryKey: ["home-sections"] });
+    },
+    onError: (err: any) => toast.error(err.message || "Failed to update layout order"),
+  });
+
+  const handleMoveSection = (index: number, direction: "up" | "down") => {
+    const targetIndex = direction === "up" ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= sections.length) return;
+    const reordered = [...sections];
+    const [moved] = reordered.splice(index, 1);
+    reordered.splice(targetIndex, 0, moved);
+    const items = reordered.map((sec: any, i: number) => ({ id: sec.id, sort_order: i + 1 }));
+    reorderSectionsMutation.mutate(items);
+  };
 
   const saveSettingMutation = useMutation({
     mutationFn: ({ key, value }: { key: any; value: any }) =>
@@ -854,71 +887,133 @@ function AdminDashboard() {
         {/* TAB 7: HOMEPAGE EDITORIAL SECTIONS */}
         {tab === "sections" && (
           <div className="space-y-6">
-            <div>
-              <h2 className="text-2xl font-extrabold tracking-tight">
-                Editorial Homepage Sections
-              </h2>
-              <p className="text-sm text-muted-foreground">
-                Manage the layout, order, copy, theme and products displayed on the customer-facing
-                storefront.
-              </p>
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <h2 className="text-2xl font-extrabold tracking-tight">
+                  Editorial Homepage Layout & Sections
+                </h2>
+                <p className="text-sm text-muted-foreground">
+                  Manage the storefront layout: reorder sections, edit storytelling copy, choose themes, and pick featured products.
+                </p>
+              </div>
+
+              <CreateSectionDialog
+                products={products}
+                categories={categories}
+                nextSortOrder={sections.length + 1}
+                onSave={(newSec) => saveSectionMutation.mutate(newSec)}
+              />
             </div>
 
-            <div className="space-y-4">
-              {sections.map((section: any, index: number) => (
-                <div
-                  key={section.id}
-                  className="rounded-3xl border bg-card p-6 transition-shadow hover:shadow-xs"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-4">
-                    <div className="flex items-center gap-3">
-                      <span className="flex h-8 w-8 items-center justify-center rounded-full bg-surface font-mono text-xs font-bold">
-                        {index + 1}
-                      </span>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="rounded bg-surface px-2 py-0.5 font-mono text-xs uppercase text-muted-foreground font-semibold">
-                            {section.section_type}
-                          </span>
-                          <span className="font-bold">{section.title}</span>
+            {sections.length === 0 ? (
+              <div className="rounded-3xl border border-dashed p-12 text-center">
+                <p className="font-bold text-lg">No layout sections found</p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Add your first custom section above to customize the homepage.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {sections.map((section: any, index: number) => (
+                  <div
+                    key={section.id}
+                    className="rounded-3xl border bg-card p-6 transition-shadow hover:shadow-xs"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-4">
+                      <div className="flex items-center gap-3">
+                        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-surface font-mono text-xs font-bold">
+                          {index + 1}
+                        </span>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="rounded bg-surface px-2 py-0.5 font-mono text-xs uppercase text-muted-foreground font-semibold">
+                              {section.section_type.replace(/_/g, " ")}
+                            </span>
+                            <span className="font-bold">{section.title}</span>
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {section.eyebrow ? `${section.eyebrow} · ` : ""}Theme: {section.theme} · {section.product_slugs?.length || 0} Products
+                          </p>
                         </div>
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          {section.eyebrow ? `${section.eyebrow} · ` : ""}Theme: {section.theme} ·
-                          Layout: {section.layout}
-                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        {/* Reorder Up / Down */}
+                        <button
+                          disabled={index === 0}
+                          onClick={() => handleMoveSection(index, "up")}
+                          className="press flex h-8 w-8 items-center justify-center rounded-full bg-surface hover:bg-muted disabled:opacity-30"
+                          title="Move Up"
+                        >
+                          <ArrowUp className="h-4 w-4" />
+                        </button>
+                        <button
+                          disabled={index === sections.length - 1}
+                          onClick={() => handleMoveSection(index, "down")}
+                          className="press flex h-8 w-8 items-center justify-center rounded-full bg-surface hover:bg-muted disabled:opacity-30"
+                          title="Move Down"
+                        >
+                          <ArrowDown className="h-4 w-4" />
+                        </button>
+
+                        <button
+                          onClick={() =>
+                            saveSectionMutation.mutate({
+                              ...section,
+                              published: !section.published,
+                            })
+                          }
+                          className={`press rounded-full px-3 py-1 font-mono text-xs font-semibold ${
+                            section.published
+                              ? "bg-success/20 text-success"
+                              : "bg-surface text-muted-foreground"
+                          }`}
+                        >
+                          {section.published ? "Active" : "Hidden"}
+                        </button>
+
+                        <SectionEditDialog
+                          section={section}
+                          products={products}
+                          categories={categories}
+                          onSave={(updated) => saveSectionMutation.mutate(updated)}
+                        />
+
+                        <button
+                          onClick={() => {
+                            if (confirm(`Remove section "${section.title}" from homepage?`)) {
+                              deleteSectionMutation.mutate(section.id);
+                            }
+                          }}
+                          className="press flex h-8 w-8 items-center justify-center rounded-full bg-destructive/10 text-destructive hover:bg-destructive/20"
+                          title="Delete Section"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-3">
-                      <button
-                        onClick={() =>
-                          saveSectionMutation.mutate({
-                            ...section,
-                            published: !section.published,
-                          })
-                        }
-                        className={`press rounded-full px-4 py-1.5 font-mono text-xs font-semibold ${
-                          section.published
-                            ? "bg-success/20 text-success"
-                            : "bg-surface text-muted-foreground"
-                        }`}
-                      >
-                        {section.published ? "Active" : "Hidden"}
-                      </button>
+                    {section.body && (
+                      <p className="mt-3 text-sm text-muted-foreground">{section.body}</p>
+                    )}
 
-                      <SectionEditDialog
-                        section={section}
-                        onSave={(updated) => saveSectionMutation.mutate(updated)}
-                      />
-                    </div>
+                    {section.product_slugs && section.product_slugs.length > 0 && (
+                      <div className="mt-3 flex flex-wrap gap-1.5 pt-2 border-t">
+                        <span className="text-[11px] font-mono text-muted-foreground mr-1 self-center">Products:</span>
+                        {section.product_slugs.map((slug: string) => (
+                          <span
+                            key={slug}
+                            className="rounded-md bg-surface px-2 py-0.5 text-[11px] font-mono font-medium"
+                          >
+                            {slug}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
-
-                  {section.body && (
-                    <p className="mt-3 text-sm text-muted-foreground">{section.body}</p>
-                  )}
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </main>
@@ -2872,16 +2967,261 @@ function AdjustStockDialog({
 }
 
 // ==========================================
-// SECTION EDIT DIALOG
+// CREATE & EDIT SECTION DIALOGS
 // ==========================================
-function SectionEditDialog({ section, onSave }: { section: any; onSave: (updated: any) => void }) {
+function CreateSectionDialog({
+  products,
+  categories,
+  nextSortOrder,
+  onSave,
+}: {
+  products: any[];
+  categories: any[];
+  nextSortOrder: number;
+  onSave: (section: any) => void;
+}) {
   const [open, setOpen] = useState(false);
+  const [sectionType, setSectionType] = useState<string>("product_edit");
+  const [title, setTitle] = useState("");
+  const [eyebrow, setEyebrow] = useState("");
+  const [body, setBody] = useState("");
+  const [ctaLabel, setCtaLabel] = useState("Shop The Edit");
+  const [ctaHref, setCtaHref] = useState("/shop");
+  const [theme, setTheme] = useState("paper");
+  const [selectedSlugs, setSelectedSlugs] = useState<string[]>([]);
+
+  const toggleSlug = (slug: string) => {
+    setSelectedSlugs((prev) =>
+      prev.includes(slug) ? prev.filter((s) => s !== slug) : [...prev, slug],
+    );
+  };
+
+  const handleCreate = () => {
+    if (!title.trim()) {
+      toast.error("Please provide a section title");
+      return;
+    }
+
+    onSave({
+      section_type: sectionType,
+      title: title.trim(),
+      eyebrow: eyebrow.trim() || null,
+      body: body.trim() || null,
+      cta_label: ctaLabel.trim() || null,
+      cta_href: ctaHref.trim() || null,
+      theme,
+      layout: "standard",
+      sort_order: nextSortOrder,
+      published: true,
+      product_slugs: selectedSlugs,
+      category_slugs: categories.map((c) => c.slug).slice(0, 4),
+      settings: {},
+    });
+
+    setOpen(false);
+    setTitle("");
+    setEyebrow("");
+    setBody("");
+    setSelectedSlugs([]);
+  };
+
+  return (
+    <>
+      <button
+        onClick={() => setOpen(true)}
+        className="press flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-xs font-bold text-primary-foreground shadow-sm hover:opacity-90"
+      >
+        <Plus className="h-4 w-4" /> Add Section
+      </button>
+
+      {open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/60 p-4 backdrop-blur-xs">
+          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-3xl bg-background p-6 shadow-2xl">
+            <div className="flex items-center justify-between border-b pb-3">
+              <h3 className="text-lg font-bold">Add Custom Homepage Section</h3>
+              <button
+                onClick={() => setOpen(false)}
+                className="press h-8 w-8 rounded-full bg-surface flex items-center justify-center text-muted-foreground hover:text-foreground"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-4">
+              <div>
+                <label className="text-xs font-mono uppercase text-muted-foreground">
+                  Section Type
+                </label>
+                <select
+                  value={sectionType}
+                  onChange={(e) => setSectionType(e.target.value)}
+                  className="mt-1 h-10 w-full rounded-xl bg-surface px-3 text-sm outline-none ring-primary focus:ring-2"
+                >
+                  <option value="product_edit">Editorial Pick (Curated Grid)</option>
+                  <option value="product_rail">Product Rail (Horizontal Scroll Carousel)</option>
+                  <option value="hero">Hero Banner (Full Screen Showcase)</option>
+                  <option value="category_index">Category Index (Department Directory)</option>
+                  <option value="character">Brand Story & Character Spotlight</option>
+                  <option value="campaign">Marketing Campaign Banner</option>
+                  <option value="service_notes">Store Policy & Service Notes</option>
+                </select>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-mono uppercase text-muted-foreground">
+                    Eyebrow / Badge
+                  </label>
+                  <input
+                    value={eyebrow}
+                    onChange={(e) => setEyebrow(e.target.value)}
+                    placeholder="e.g. Staff Favorite, Limited Run"
+                    className="mt-1 h-10 w-full rounded-xl bg-surface px-3 text-sm outline-none ring-primary focus:ring-2"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-mono uppercase text-muted-foreground">Title *</label>
+                  <input
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    placeholder="e.g. High-Power Daily Drivers"
+                    className="mt-1 h-10 w-full rounded-xl bg-surface px-3 text-sm outline-none ring-primary focus:ring-2"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-mono uppercase text-muted-foreground">Body Copy</label>
+                <textarea
+                  rows={2}
+                  value={body}
+                  onChange={(e) => setBody(e.target.value)}
+                  placeholder="Editorial description explaining why this collection matters..."
+                  className="mt-1 w-full rounded-xl bg-surface p-3 text-sm outline-none ring-primary focus:ring-2"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div>
+                  <label className="text-xs font-mono uppercase text-muted-foreground">
+                    CTA Button Label
+                  </label>
+                  <input
+                    value={ctaLabel}
+                    onChange={(e) => setCtaLabel(e.target.value)}
+                    className="mt-1 h-10 w-full rounded-xl bg-surface px-3 text-sm outline-none ring-primary focus:ring-2"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-mono uppercase text-muted-foreground">
+                    CTA Destination Link
+                  </label>
+                  <input
+                    value={ctaHref}
+                    onChange={(e) => setCtaHref(e.target.value)}
+                    className="mt-1 h-10 w-full rounded-xl bg-surface px-3 text-sm outline-none ring-primary focus:ring-2"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-mono uppercase text-muted-foreground">Theme</label>
+                  <select
+                    value={theme}
+                    onChange={(e) => setTheme(e.target.value)}
+                    className="mt-1 h-10 w-full rounded-xl bg-surface px-3 text-sm outline-none ring-primary focus:ring-2"
+                  >
+                    <option value="paper">Paper (Warm minimal)</option>
+                    <option value="ink">Ink (Dark high-contrast)</option>
+                    <option value="accent">Accent (Vibrant pop)</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Product Selector */}
+              <div>
+                <label className="text-xs font-mono uppercase text-muted-foreground block mb-1.5">
+                  Featured Products ({selectedSlugs.length} selected)
+                </label>
+                <div className="max-h-48 overflow-y-auto rounded-2xl border bg-surface/50 p-2 space-y-1">
+                  {products.map((p) => {
+                    const isSelected = selectedSlugs.includes(p.slug);
+                    return (
+                      <button
+                        type="button"
+                        key={p.id}
+                        onClick={() => toggleSlug(p.slug)}
+                        className={`w-full flex items-center justify-between p-2 rounded-xl text-left text-xs transition-colors ${
+                          isSelected
+                            ? "bg-primary text-primary-foreground font-bold"
+                            : "hover:bg-muted text-foreground"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 truncate">
+                          <img
+                            src={imageSrc(p.images?.[0])}
+                            alt=""
+                            className="h-7 w-7 rounded object-cover"
+                          />
+                          <span className="truncate">{p.name}</span>
+                        </div>
+                        <span className="font-mono text-[11px] shrink-0 ml-2">
+                          {isSelected ? "✓ Selected" : "+ Add"}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-6 flex justify-end gap-3 border-t pt-4">
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="press rounded-full bg-surface px-4 py-2 text-xs font-medium"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleCreate}
+                className="press rounded-full bg-primary px-5 py-2 text-xs font-bold text-primary-foreground shadow-sm"
+              >
+                Add Section to Homepage
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+function SectionEditDialog({
+  section,
+  products = [],
+  categories = [],
+  onSave,
+}: {
+  section: any;
+  products?: any[];
+  categories?: any[];
+  onSave: (updated: any) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [sectionType, setSectionType] = useState(section.section_type);
   const [title, setTitle] = useState(section.title);
   const [eyebrow, setEyebrow] = useState(section.eyebrow ?? "");
   const [body, setBody] = useState(section.body ?? "");
   const [ctaLabel, setCtaLabel] = useState(section.cta_label ?? "");
   const [ctaHref, setCtaHref] = useState(section.cta_href ?? "");
   const [theme, setTheme] = useState(section.theme);
+  const [selectedSlugs, setSelectedSlugs] = useState<string[]>(section.product_slugs || []);
+
+  const toggleSlug = (slug: string) => {
+    setSelectedSlugs((prev) =>
+      prev.includes(slug) ? prev.filter((s) => s !== slug) : [...prev, slug],
+    );
+  };
 
   return (
     <>
@@ -2893,30 +3233,59 @@ function SectionEditDialog({ section, onSave }: { section: any; onSave: (updated
       </button>
 
       {open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/50 p-4">
-          <div className="w-full max-w-lg rounded-3xl bg-background p-6 shadow-2xl">
-            <h3 className="text-lg font-bold">Edit Section: {section.section_type}</h3>
-            <div className="mt-4 space-y-3">
-              <div>
-                <label className="text-xs font-mono uppercase text-muted-foreground">Eyebrow</label>
-                <input
-                  value={eyebrow}
-                  onChange={(e) => setEyebrow(e.target.value)}
-                  className="mt-1 h-10 w-full rounded-xl bg-surface px-3 text-sm outline-none ring-primary focus:ring-2"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-mono uppercase text-muted-foreground">Title</label>
-                <input
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  className="mt-1 h-10 w-full rounded-xl bg-surface px-3 text-sm outline-none ring-primary focus:ring-2"
-                />
-              </div>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/60 p-4 backdrop-blur-xs">
+          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-3xl bg-background p-6 shadow-2xl">
+            <div className="flex items-center justify-between border-b pb-3">
+              <h3 className="text-lg font-bold">Customize Section: {section.title}</h3>
+              <button
+                onClick={() => setOpen(false)}
+                className="press h-8 w-8 rounded-full bg-surface flex items-center justify-center text-muted-foreground hover:text-foreground"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-4">
               <div>
                 <label className="text-xs font-mono uppercase text-muted-foreground">
-                  Body Copy
+                  Section Type
                 </label>
+                <select
+                  value={sectionType}
+                  onChange={(e) => setSectionType(e.target.value)}
+                  className="mt-1 h-10 w-full rounded-xl bg-surface px-3 text-sm outline-none ring-primary focus:ring-2"
+                >
+                  <option value="product_edit">Editorial Pick (Curated Grid)</option>
+                  <option value="product_rail">Product Rail (Horizontal Scroll Carousel)</option>
+                  <option value="hero">Hero Banner (Full Screen Showcase)</option>
+                  <option value="category_index">Category Index (Department Directory)</option>
+                  <option value="character">Brand Story & Character Spotlight</option>
+                  <option value="campaign">Marketing Campaign Banner</option>
+                  <option value="service_notes">Store Policy & Service Notes</option>
+                </select>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-mono uppercase text-muted-foreground">Eyebrow</label>
+                  <input
+                    value={eyebrow}
+                    onChange={(e) => setEyebrow(e.target.value)}
+                    className="mt-1 h-10 w-full rounded-xl bg-surface px-3 text-sm outline-none ring-primary focus:ring-2"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-mono uppercase text-muted-foreground">Title *</label>
+                  <input
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    className="mt-1 h-10 w-full rounded-xl bg-surface px-3 text-sm outline-none ring-primary focus:ring-2"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-mono uppercase text-muted-foreground">Body Copy</label>
                 <textarea
                   rows={3}
                   value={body}
@@ -2924,7 +3293,8 @@ function SectionEditDialog({ section, onSave }: { section: any; onSave: (updated
                   className="mt-1 w-full rounded-xl bg-surface p-3 text-sm outline-none ring-primary focus:ring-2"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
                   <label className="text-xs font-mono uppercase text-muted-foreground">
                     CTA Label
@@ -2945,42 +3315,82 @@ function SectionEditDialog({ section, onSave }: { section: any; onSave: (updated
                     className="mt-1 h-10 w-full rounded-xl bg-surface px-3 text-sm outline-none ring-primary focus:ring-2"
                   />
                 </div>
+                <div>
+                  <label className="text-xs font-mono uppercase text-muted-foreground">Theme</label>
+                  <select
+                    value={theme}
+                    onChange={(e) => setTheme(e.target.value)}
+                    className="mt-1 h-10 w-full rounded-xl bg-surface px-3 text-sm outline-none ring-primary focus:ring-2"
+                  >
+                    <option value="paper">Paper (Warm minimal)</option>
+                    <option value="ink">Ink (Dark high-contrast)</option>
+                    <option value="accent">Accent (Vibrant pop)</option>
+                  </select>
+                </div>
               </div>
+
+              {/* Product Selector */}
               <div>
-                <label className="text-xs font-mono uppercase text-muted-foreground">Theme</label>
-                <select
-                  value={theme}
-                  onChange={(e) => setTheme(e.target.value as any)}
-                  className="mt-1 h-10 w-full rounded-xl bg-surface px-3 text-sm outline-none ring-primary focus:ring-2"
-                >
-                  <option value="paper">Paper (Warm minimal)</option>
-                  <option value="ink">Ink (Dark bold)</option>
-                  <option value="accent">Accent (Vibrant pop)</option>
-                </select>
+                <label className="text-xs font-mono uppercase text-muted-foreground block mb-1.5">
+                  Featured Products ({selectedSlugs.length} selected)
+                </label>
+                <div className="max-h-48 overflow-y-auto rounded-2xl border bg-surface/50 p-2 space-y-1">
+                  {products.map((p) => {
+                    const isSelected = selectedSlugs.includes(p.slug);
+                    return (
+                      <button
+                        type="button"
+                        key={p.id}
+                        onClick={() => toggleSlug(p.slug)}
+                        className={`w-full flex items-center justify-between p-2 rounded-xl text-left text-xs transition-colors ${
+                          isSelected
+                            ? "bg-primary text-primary-foreground font-bold"
+                            : "hover:bg-muted text-foreground"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 truncate">
+                          <img
+                            src={imageSrc(p.images?.[0])}
+                            alt=""
+                            className="h-7 w-7 rounded object-cover"
+                          />
+                          <span className="truncate">{p.name}</span>
+                        </div>
+                        <span className="font-mono text-[11px] shrink-0 ml-2">
+                          {isSelected ? "✓ Selected" : "+ Add"}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </div>
 
-            <div className="mt-6 flex justify-end gap-3">
+            <div className="mt-6 flex justify-end gap-3 border-t pt-4">
               <button
+                type="button"
                 onClick={() => setOpen(false)}
                 className="press rounded-full bg-surface px-4 py-2 text-xs font-medium"
               >
                 Cancel
               </button>
               <button
+                type="button"
                 onClick={() => {
                   onSave({
                     ...section,
+                    section_type: sectionType,
                     title,
                     eyebrow: eyebrow || null,
                     body: body || null,
                     cta_label: ctaLabel || null,
                     cta_href: ctaHref || null,
                     theme,
+                    product_slugs: selectedSlugs,
                   });
                   setOpen(false);
                 }}
-                className="press rounded-full bg-primary px-5 py-2 text-xs font-bold text-primary-foreground"
+                className="press rounded-full bg-primary px-5 py-2 text-xs font-bold text-primary-foreground shadow-sm"
               >
                 Save Changes
               </button>
