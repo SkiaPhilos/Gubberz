@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1790959814925,
+      "tag": "0000_gubberz_catalogue",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1790960421600,
+      "tag": "0001_orders_checkout",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790995599932,
+      "tag": "0002_gubberz_admin_editorial",
+      "breakpoints": true
+    }
+  ]
+}

@@ -1,0 +1,1 @@
+var e=`/assets/sitter-CK9b4Vyc.png`;export{e as t};

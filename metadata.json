@@ -1,0 +1,6 @@
+{
+  "name": "Gubberz",
+  "description": "Editorial storefront and admin system for gadgets and electronics in Pakistan.",
+  "permissions": [],
+  "capabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
