@@ -41,17 +41,22 @@ function AuthCallbackPage() {
         }
 
         // Get the resolved session
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        const {
+          data: { session },
+          error: sessionError,
+        } = await supabase.auth.getSession();
         if (sessionError) throw sessionError;
 
         if (!session?.user) {
           // Listen once for auth state change in case hash is being parsed
-          const { data: authListener } = supabase.auth.onAuthStateChange(async (event, currentSession) => {
-            if (currentSession?.user && mounted) {
-              authListener.subscription.unsubscribe();
-              proceedWithUser(currentSession.user);
-            }
-          });
+          const { data: authListener } = supabase.auth.onAuthStateChange(
+            async (event, currentSession) => {
+              if (currentSession?.user && mounted) {
+                authListener.subscription.unsubscribe();
+                proceedWithUser(currentSession.user);
+              }
+            },
+          );
 
           // Timeout fallback
           setTimeout(async () => {
@@ -81,7 +86,11 @@ function AuthCallbackPage() {
 
     function proceedWithUser(user: any) {
       setStatus("success");
-      const name = user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split("@")[0] || "there";
+      const name =
+        user.user_metadata?.full_name ||
+        user.user_metadata?.name ||
+        user.email?.split("@")[0] ||
+        "there";
       toast.success(`Welcome back, ${name}!`);
 
       // Determine where to redirect
@@ -97,18 +106,34 @@ function AuthCallbackPage() {
       if (destination && destination !== "/auth") {
         navigate({ to: destination as any });
       } else {
-        // Check if user is admin
+        // Check if user is admin via VITE_ADMIN_EMAILS or Supabase user_roles
         const adminEmails = (import.meta.env["VITE_ADMIN_EMAILS"] || "")
           .split(",")
           .map((e: string) => e.trim().toLowerCase())
           .filter(Boolean);
 
-        const isAdmin = user.email && adminEmails.includes(user.email.toLowerCase());
-        if (isAdmin) {
-          navigate({ to: "/admin" });
-        } else {
-          navigate({ to: "/" });
+        let isAdmin = !!(user.email && adminEmails.includes(user.email.toLowerCase()));
+
+        if (!isAdmin) {
+          supabase
+            .rpc("has_role", {
+              _user_id: user.id,
+              _role: "admin",
+            })
+            .then(({ data }) => {
+              if (data) {
+                navigate({ to: "/admin" });
+              } else {
+                navigate({ to: "/" });
+              }
+            })
+            .catch(() => {
+              navigate({ to: "/" });
+            });
+          return;
         }
+
+        navigate({ to: "/admin" });
       }
     }
 
