@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useSuspenseQuery, queryOptions } from "@tanstack/react-query";
 import { motion, useReducedMotion, useScroll, useTransform } from "motion/react";
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ProductCard } from "@/components/shop/ProductCard";
 import { getHomeSections, type HomeSection } from "@/lib/content.functions";
 import { categoriesQuery, effectivePrice, formatPKR, imageSrc, productsQuery } from "@/lib/shop";
@@ -132,6 +132,7 @@ function Section({
             <motion.img
               src={sitter}
               alt="A Gubberz character testing headphones"
+              suppressHydrationWarning
               className="relative z-10 w-48 md:w-56 drop-shadow-md"
               animate={{ y: [0, -6, 0] }}
               transition={{ duration: 3.5, repeat: Infinity, ease: "easeInOut" }}
@@ -218,6 +219,10 @@ function Section({
 
 function Hero({ section, products }: { section: HomeSection; products: any[] }) {
   const ref = useRef<HTMLElement>(null);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
   const reduce = useReducedMotion();
   const { scrollYProgress } = useScroll({ target: ref, offset: ["start start", "end start"] });
   const imageY = useTransform(scrollYProgress, [0, 1], [0, reduce ? 0 : 80]);
@@ -267,7 +272,8 @@ function Hero({ section, products }: { section: HomeSection; products: any[] }) 
       {main && (
         <div className="relative mt-8 h-[31rem] md:col-span-7 md:mt-0 md:h-[40rem]">
           <motion.div
-            style={{ y: imageY }}
+            style={{ y: mounted ? imageY : 0 }}
+            suppressHydrationWarning
             className="absolute left-[7%] top-[8%] z-10 w-[72%] -rotate-2 border-[10px] border-background bg-surface shadow-xl"
           >
             <Link to="/product/$slug" params={{ slug: main.slug }}>
@@ -297,8 +303,9 @@ function Hero({ section, products }: { section: HomeSection; products: any[] }) 
           <motion.img
             src={sitter}
             alt=""
+            suppressHydrationWarning
             className="absolute bottom-0 right-[2%] z-20 w-32 md:w-44"
-            animate={reduce ? undefined : { y: [0, -10, 0], rotate: [-2, 2, -2] }}
+            animate={mounted && !reduce ? { y: [0, -10, 0], rotate: [-2, 2, -2] } : undefined}
             transition={{ duration: 4, repeat: Infinity }}
           />
         </div>

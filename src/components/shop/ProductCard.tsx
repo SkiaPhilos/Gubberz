@@ -8,13 +8,7 @@ import { availability, effectivePrice, formatPKR, imageSrc } from "@/lib/shop";
 import { flyToCart, useCart } from "@/lib/cart";
 import { useWishlist } from "@/lib/discovery";
 
-export function ProductCard({
-  product,
-  size = "md",
-}: {
-  product: Product;
-  size?: "md" | "lg";
-}) {
+export function ProductCard({ product, size = "md" }: { product: Product; size?: "md" | "lg" }) {
   const imgRef = useRef<HTMLImageElement>(null);
   const cart = useCart();
   const wishlist = useWishlist();
@@ -61,7 +55,10 @@ export function ProductCard({
   };
 
   return (
-    <article className="group relative flex h-full flex-col justify-between rounded-3xl border border-border/40 bg-card p-4 transition-all duration-300 hover:border-border hover:shadow-md">
+    <article
+      suppressHydrationWarning
+      className="group relative flex h-full flex-col justify-between rounded-3xl border border-border/40 bg-card p-4 transition-all duration-300 hover:border-border hover:shadow-md"
+    >
       <Link
         to="/product/$slug"
         params={{ slug: product.slug }}
@@ -93,6 +90,7 @@ export function ProductCard({
           <button
             type="button"
             onClick={toggleWishlist}
+            suppressHydrationWarning
             className={`press absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full bg-background/90 shadow-xs transition-colors hover:bg-background ${
               isWishlisted ? "text-destructive" : "text-muted-foreground hover:text-foreground"
             }`}

@@ -1,1 +1,0 @@
-import{i as e,n as t}from"./jsx-dev-runtime-CGUO9lFd.js";import{t as n}from"./useRouter-DwJ47W0Y.js";var r=e(t(),1);function i(e){let t=n();return r.useCallback(n=>t.navigate({...n,from:n.from??e?.from}),[e?.from,t])}export{i as t};

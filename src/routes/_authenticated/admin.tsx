@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import {
   Package,
@@ -31,6 +31,7 @@ import {
   MapPin,
   UserCheck,
   RefreshCw,
+  Upload,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import {
@@ -64,7 +65,8 @@ export const Route = createFileRoute("/_authenticated/admin")({
   component: AdminDashboard,
 });
 
-type Tab = "overview" | "orders" | "products" | "categories" | "inventory" | "settings" | "sections";
+type Tab =
+  "overview" | "orders" | "products" | "categories" | "inventory" | "settings" | "sections";
 
 const PRESET_IMAGE_KEYS = [
   "headphones",
@@ -354,7 +356,10 @@ function AdminDashboard() {
               id: "orders",
               label: `Orders (${orders.length})`,
               icon: ShoppingBag,
-              badge: pendingVerificationOrders.length > 0 ? `${pendingVerificationOrders.length} pending` : undefined,
+              badge:
+                pendingVerificationOrders.length > 0
+                  ? `${pendingVerificationOrders.length} pending`
+                  : undefined,
             },
             { id: "products", label: `Products (${products.length})`, icon: Package },
             { id: "categories", label: `Categories (${categories.length})`, icon: Layers },
@@ -466,9 +471,7 @@ function AdminDashboard() {
                 </p>
               </div>
               <div className="rounded-3xl border bg-surface p-6">
-                <p className="font-mono text-xs uppercase text-muted-foreground">
-                  Low Stock Watch
-                </p>
+                <p className="font-mono text-xs uppercase text-muted-foreground">Low Stock Watch</p>
                 <p
                   className={`mt-2 font-mono text-3xl font-extrabold ${lowStock.length > 0 ? "text-destructive" : ""}`}
                 >
@@ -609,7 +612,8 @@ function AdminDashboard() {
               <div>
                 <h2 className="text-2xl font-extrabold tracking-tight">Customer Orders</h2>
                 <p className="text-sm text-muted-foreground">
-                  Track orders, verify advance payment proofs, inspect order items, and advance status steps.
+                  Track orders, verify advance payment proofs, inspect order items, and advance
+                  status steps.
                 </p>
               </div>
 
@@ -747,7 +751,9 @@ function AdminDashboard() {
 
                     {/* Quick status steps */}
                     <div className="mt-4 flex flex-wrap items-center gap-2 border-t pt-4">
-                      <span className="font-mono text-xs text-muted-foreground mr-1">Advance Status:</span>
+                      <span className="font-mono text-xs text-muted-foreground mr-1">
+                        Advance Status:
+                      </span>
                       {[
                         "payment_verification",
                         "confirmed",
@@ -761,8 +767,9 @@ function AdminDashboard() {
                           disabled={order.status === st || updateOrderStatusMutation.isPending}
                           onClick={() => {
                             const note =
-                              prompt(`Add a note for status "${st.replace("_", " ")}" (optional):`) ??
-                              "";
+                              prompt(
+                                `Add a note for status "${st.replace("_", " ")}" (optional):`,
+                              ) ?? "";
                             updateOrderStatusMutation.mutate({
                               orderId: order.id,
                               status: st,
@@ -803,7 +810,9 @@ function AdminDashboard() {
             products={products}
             categories={categories}
             onSaveProduct={(p) => saveProductMutation.mutate(p)}
-            onToggleField={(id, field, value) => toggleProductFieldMutation.mutate({ id, field, value })}
+            onToggleField={(id, field, value) =>
+              toggleProductFieldMutation.mutate({ id, field, value })
+            }
             onDeleteProduct={(id) => deleteProductMutation.mutate(id)}
             onAdjustStock={(productId, delta, reason) =>
               adjustStockMutation.mutate({ productId, delta, reason })
@@ -846,9 +855,12 @@ function AdminDashboard() {
         {tab === "sections" && (
           <div className="space-y-6">
             <div>
-              <h2 className="text-2xl font-extrabold tracking-tight">Editorial Homepage Sections</h2>
+              <h2 className="text-2xl font-extrabold tracking-tight">
+                Editorial Homepage Sections
+              </h2>
               <p className="text-sm text-muted-foreground">
-                Manage the layout, order, copy, theme and products displayed on the customer-facing storefront.
+                Manage the layout, order, copy, theme and products displayed on the customer-facing
+                storefront.
               </p>
             </div>
 
@@ -965,9 +977,34 @@ function OrderInspectionModal({
   }
 
   const { order, items, events } = data;
-  const proofUrl = order.payment_proof
-    ? `${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/public/payment-proofs/${order.payment_proof}`
-    : null;
+  const [proofUrl, setProofUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!order?.payment_proof) {
+      setProofUrl(null);
+      return;
+    }
+    if (order.payment_proof.startsWith("http")) {
+      setProofUrl(order.payment_proof);
+      return;
+    }
+    // Attempt signed URL first (for private buckets)
+    supabase.storage
+      .from("payment-proofs")
+      .createSignedUrl(order.payment_proof, 3600)
+      .then(({ data, error }) => {
+        if (data?.signedUrl) {
+          setProofUrl(data.signedUrl);
+        } else {
+          const base = import.meta.env.VITE_SUPABASE_URL || "";
+          setProofUrl(`${base}/storage/v1/object/public/payment-proofs/${order.payment_proof}`);
+        }
+      })
+      .catch(() => {
+        const base = import.meta.env.VITE_SUPABASE_URL || "";
+        setProofUrl(`${base}/storage/v1/object/public/payment-proofs/${order.payment_proof}`);
+      });
+  }, [order?.payment_proof]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/50 p-4 backdrop-blur-xs overflow-y-auto">
@@ -1153,7 +1190,9 @@ function OrderInspectionModal({
                   setStatusNote("");
                 }}
                 className={`press rounded-xl px-4 py-2 text-xs font-bold text-white transition-opacity ${
-                  order.status === st.id ? "opacity-30 cursor-not-allowed bg-muted text-muted-foreground" : st.color
+                  order.status === st.id
+                    ? "opacity-30 cursor-not-allowed bg-muted text-muted-foreground"
+                    : st.color
                 }`}
               >
                 {st.label}
@@ -1166,7 +1205,9 @@ function OrderInspectionModal({
         <div className="mt-6 border-t pt-6">
           <h4 className="font-bold text-sm mb-3">Status Timeline & History ({events.length})</h4>
           {events.length === 0 ? (
-            <p className="text-xs text-muted-foreground">Initial state recorded upon order placement.</p>
+            <p className="text-xs text-muted-foreground">
+              Initial state recorded upon order placement.
+            </p>
           ) : (
             <div className="space-y-2.5">
               {events.map((ev: any) => (
@@ -1256,7 +1297,8 @@ function CategoriesManager({
         <div>
           <h2 className="text-2xl font-extrabold tracking-tight">Category Architecture</h2>
           <p className="text-sm text-muted-foreground">
-            Manage store categories, customize blurbs, reorder display hierarchy, and hide/publish sections.
+            Manage store categories, customize blurbs, reorder display hierarchy, and hide/publish
+            sections.
           </p>
         </div>
 
@@ -1287,7 +1329,9 @@ function CategoriesManager({
                 <tr key={cat.id} className="hover:bg-surface/30">
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-1.5 font-mono">
-                      <span className="font-bold text-xs w-6 text-muted-foreground">#{index + 1}</span>
+                      <span className="font-bold text-xs w-6 text-muted-foreground">
+                        #{index + 1}
+                      </span>
                       <button
                         disabled={index === 0}
                         onClick={() => handleMove(index, "up")}
@@ -1327,7 +1371,11 @@ function CategoriesManager({
                           : "bg-surface text-muted-foreground"
                       }`}
                     >
-                      {cat.published ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+                      {cat.published ? (
+                        <Eye className="h-3.5 w-3.5" />
+                      ) : (
+                        <EyeOff className="h-3.5 w-3.5" />
+                      )}
                       {cat.published ? "Published" : "Hidden"}
                     </button>
                   </td>
@@ -1405,7 +1453,9 @@ function CategoryFormDialog({
 
         <div className="mt-4 space-y-3">
           <div>
-            <label className="text-xs font-mono uppercase text-muted-foreground">Category Name</label>
+            <label className="text-xs font-mono uppercase text-muted-foreground">
+              Category Name
+            </label>
             <input
               value={name}
               onChange={(e) => {
@@ -1529,7 +1579,8 @@ function ProductsManager({
         <div>
           <h2 className="text-2xl font-extrabold tracking-tight">Product Catalogue</h2>
           <p className="text-sm text-muted-foreground">
-            Manage catalogue items, pricing, technical specifications, gallery photos, and featured selections.
+            Manage catalogue items, pricing, technical specifications, gallery photos, and featured
+            selections.
           </p>
         </div>
 
@@ -1748,8 +1799,69 @@ function ProductFormDialog({
   const [lowStockThreshold, setLowStockThreshold] = useState(
     Number(initial?.low_stock_threshold ?? 3),
   );
-  const [selectedImage, setSelectedImage] = useState(initial?.images?.[0] ?? "headphones");
-  const [customImageUrl, setCustomImageUrl] = useState("");
+  const initialImg = initial?.images?.[0] ?? "headphones";
+  const isInitialCustom = initialImg.startsWith("http") || initialImg.startsWith("data:");
+  const [selectedImage, setSelectedImage] = useState(isInitialCustom ? "" : initialImg);
+  const [customImageUrl, setCustomImageUrl] = useState(isInitialCustom ? initialImg : "");
+  const [isUploading, setIsUploading] = useState(false);
+
+  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("File size must be under 5MB");
+      return;
+    }
+
+    setIsUploading(true);
+    try {
+      const ext =
+        file.name
+          .split(".")
+          .pop()
+          ?.toLowerCase()
+          .replace(/[^a-z0-9]/g, "") || "jpg";
+      const filePath = `products/${Date.now()}-${crypto.randomUUID().slice(0, 8)}.${ext}`;
+
+      const primaryBucket = import.meta.env.VITE_SUPABASE_STORAGE_BUCKET || "product-images";
+      let uploadResult = await supabase.storage
+        .from(primaryBucket)
+        .upload(filePath, file, { contentType: file.type, upsert: true });
+
+      let targetBucket = primaryBucket;
+      if (
+        uploadResult.error &&
+        uploadResult.error.message?.toLowerCase().includes("bucket not found") &&
+        primaryBucket !== "products"
+      ) {
+        const fallbackResult = await supabase.storage
+          .from("products")
+          .upload(filePath, file, { contentType: file.type, upsert: true });
+        if (!fallbackResult.error) {
+          uploadResult = fallbackResult;
+          targetBucket = "products";
+        }
+      }
+
+      if (uploadResult.error) {
+        throw uploadResult.error;
+      }
+
+      const { data } = supabase.storage.from(targetBucket).getPublicUrl(filePath);
+      if (!data?.publicUrl) throw new Error("Could not get public URL from storage");
+
+      setCustomImageUrl(data.publicUrl);
+      setSelectedImage("");
+      toast.success("Image uploaded to Supabase Storage!");
+    } catch (err: any) {
+      console.error("Storage upload failed:", err);
+      toast.error(err.message || "Failed to upload to Supabase Storage");
+    } finally {
+      setIsUploading(false);
+      e.target.value = "";
+    }
+  }
   const [featuresText, setFeaturesText] = useState(
     Array.isArray(initial?.features) ? initial.features.join("\n") : "",
   );
@@ -1770,7 +1882,7 @@ function ProductFormDialog({
     try {
       parsedSpecs = JSON.parse(specsText);
     } catch {
-      toast.error("Specifications must be valid JSON format (e.g. {\"Battery\": \"40h\"})");
+      toast.error('Specifications must be valid JSON format (e.g. {"Battery": "40h"})');
       return;
     }
 
@@ -1902,7 +2014,9 @@ function ProductFormDialog({
               />
             </div>
             <div>
-              <label className="font-mono uppercase text-muted-foreground">Low Alert Threshold</label>
+              <label className="font-mono uppercase text-muted-foreground">
+                Low Alert Threshold
+              </label>
               <input
                 type="number"
                 value={lowStockThreshold}
@@ -1912,54 +2026,134 @@ function ProductFormDialog({
             </div>
           </div>
 
-          {/* Image Selection */}
-          <div className="rounded-2xl border bg-surface/40 p-3 space-y-2">
-            <label className="font-mono uppercase text-muted-foreground font-bold">
-              Product Photo Asset
-            </label>
-            <p className="text-[11px] text-muted-foreground">
-              Select one of the curated bundled assets or provide a direct web image link.
-            </p>
-            <div className="grid grid-cols-4 sm:grid-cols-8 gap-2 pt-1">
-              {PRESET_IMAGE_KEYS.map((key) => (
-                <button
-                  type="button"
-                  key={key}
-                  onClick={() => {
-                    setSelectedImage(key);
-                    setCustomImageUrl("");
-                  }}
-                  className={`press relative rounded-xl border p-1 transition-all ${
-                    selectedImage === key && !customImageUrl
-                      ? "border-primary ring-2 ring-primary bg-primary/10"
-                      : "bg-surface hover:bg-muted"
-                  }`}
-                >
+          {/* Image Selection & Supabase Storage Upload */}
+          <div className="rounded-2xl border bg-surface/40 p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <label className="font-mono uppercase text-muted-foreground font-bold">
+                  Product Image Asset
+                </label>
+                <p className="text-[11px] text-muted-foreground">
+                  Upload directly to Supabase Storage, pick a bundled preset, or link an external URL.
+                </p>
+              </div>
+              {(customImageUrl || selectedImage) && (
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-mono text-muted-foreground">Preview:</span>
                   <img
-                    src={imageSrc(key)}
-                    alt={key}
-                    className="h-12 w-full object-cover rounded-lg"
+                    src={imageSrc(customImageUrl || selectedImage)}
+                    alt="Preview"
+                    className="h-10 w-10 rounded-lg object-cover border"
                   />
-                  <span className="block text-center font-mono text-[9px] uppercase mt-1 truncate">
-                    {key}
-                  </span>
-                </button>
-              ))}
+                </div>
+              )}
             </div>
 
-            <div className="pt-2">
-              <label className="font-mono text-[11px] text-muted-foreground">Or Custom Image URL</label>
-              <input
-                value={customImageUrl}
-                onChange={(e) => setCustomImageUrl(e.target.value)}
-                placeholder="https://images.unsplash.com/..."
-                className="mt-1 h-9 w-full rounded-xl bg-background px-3 font-mono text-xs outline-none ring-primary focus:ring-2"
-              />
+            {/* Direct File Upload to Supabase Storage */}
+            <div className="rounded-xl border border-dashed p-3 bg-background/50 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-xs">
+                <Upload className="h-4 w-4 text-primary shrink-0" />
+                <div>
+                  <p className="font-medium">Upload to Supabase Storage</p>
+                  <p className="text-[10px] text-muted-foreground">
+                    Saves to <code className="font-mono">product-images</code> bucket (max 5MB, JPG/PNG/WebP)
+                  </p>
+                </div>
+              </div>
+              <label
+                className={`press cursor-pointer inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold ${
+                  isUploading
+                    ? "bg-muted text-muted-foreground pointer-events-none"
+                    : "bg-ink text-ink-foreground hover:bg-ink/90"
+                }`}
+              >
+                {isUploading ? (
+                  <>
+                    <RefreshCw className="h-3 w-3 animate-spin" /> Uploading…
+                  </>
+                ) : (
+                  <>
+                    <Upload className="h-3 w-3" /> Select File
+                  </>
+                )}
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/gif"
+                  onChange={handleFileUpload}
+                  disabled={isUploading}
+                  className="hidden"
+                />
+              </label>
+            </div>
+
+            {/* Bundled Presets */}
+            <div>
+              <span className="font-mono text-[10px] uppercase text-muted-foreground">
+                Or Select Bundled Preset Asset:
+              </span>
+              <div className="grid grid-cols-4 sm:grid-cols-8 gap-2 pt-1.5">
+                {PRESET_IMAGE_KEYS.map((key) => (
+                  <button
+                    type="button"
+                    key={key}
+                    onClick={() => {
+                      setSelectedImage(key);
+                      setCustomImageUrl("");
+                    }}
+                    className={`press relative rounded-xl border p-1 transition-all ${
+                      selectedImage === key && !customImageUrl
+                        ? "border-primary ring-2 ring-primary bg-primary/10"
+                        : "bg-surface hover:bg-muted"
+                    }`}
+                  >
+                    <img
+                      src={imageSrc(key)}
+                      alt={key}
+                      className="h-10 w-full object-cover rounded-lg"
+                    />
+                    <span className="block text-center font-mono text-[9px] uppercase mt-1 truncate">
+                      {key}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Custom URL Input */}
+            <div>
+              <label className="font-mono text-[10px] uppercase text-muted-foreground">
+                Or Custom / Supabase Storage URL
+              </label>
+              <div className="flex gap-2 mt-1">
+                <input
+                  value={customImageUrl}
+                  onChange={(e) => {
+                    setCustomImageUrl(e.target.value);
+                    if (e.target.value) setSelectedImage("");
+                  }}
+                  placeholder="https://...supabase.co/storage/v1/object/public/product-images/..."
+                  className="h-9 flex-1 rounded-xl bg-background px-3 font-mono text-xs outline-none ring-primary focus:ring-2"
+                />
+                {customImageUrl && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCustomImageUrl("");
+                      setSelectedImage("headphones");
+                    }}
+                    className="press rounded-xl px-2.5 py-1 text-xs bg-muted text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                  >
+                    Reset
+                  </button>
+                )}
+              </div>
             </div>
           </div>
 
           <div>
-            <label className="font-mono uppercase text-muted-foreground">Short Description (Tagline)</label>
+            <label className="font-mono uppercase text-muted-foreground">
+              Short Description (Tagline)
+            </label>
             <input
               value={shortDesc}
               onChange={(e) => setShortDesc(e.target.value)}
@@ -2080,7 +2274,8 @@ function InventoryManager({
       <div>
         <h2 className="text-2xl font-extrabold tracking-tight">Inventory & Stock Movements</h2>
         <p className="text-sm text-muted-foreground">
-          Real-time inventory levels, threshold alerts, and complete historical audit logs of stock adjustments.
+          Real-time inventory levels, threshold alerts, and complete historical audit logs of stock
+          adjustments.
         </p>
       </div>
 
@@ -2103,7 +2298,8 @@ function InventoryManager({
                 filter === "low" ? "bg-ink text-ink-foreground font-bold" : "text-muted-foreground"
               }`}
             >
-              Low Stock Alerts ({products.filter((p) => p.stock <= (p.low_stock_threshold ?? 3)).length})
+              Low Stock Alerts (
+              {products.filter((p) => p.stock <= (p.low_stock_threshold ?? 3)).length})
             </button>
             <button
               onClick={() => setFilter("out")}
@@ -2187,7 +2383,8 @@ function InventoryManager({
           <History className="h-5 w-5 text-primary" /> Stock Adjustment History & Audit Trail
         </h3>
         <p className="text-xs text-muted-foreground">
-          Historical record of every manual and automated inventory adjustment, reason provided, and timestamp.
+          Historical record of every manual and automated inventory adjustment, reason provided, and
+          timestamp.
         </p>
 
         {movements.length === 0 ? (
@@ -2323,7 +2520,8 @@ function StoreSettingsManager({
       <div>
         <h2 className="text-2xl font-extrabold tracking-tight">Store Settings & Payment Methods</h2>
         <p className="text-sm text-muted-foreground">
-          Update business contact details, delivery fees, advance discounts, and configure payment gateways for customers.
+          Update business contact details, delivery fees, advance discounts, and configure payment
+          gateways for customers.
         </p>
       </div>
 
@@ -2413,7 +2611,8 @@ function StoreSettingsManager({
           </div>
         </div>
         <p className="text-[11px] text-muted-foreground">
-          Customers who choose advance payment methods (JazzCash, NayaPay, Easypaisa, Bank Transfer) automatically receive this discount calculated on subtotal.
+          Customers who choose advance payment methods (JazzCash, NayaPay, Easypaisa, Bank Transfer)
+          automatically receive this discount calculated on subtotal.
         </p>
       </div>
 
@@ -2423,7 +2622,8 @@ function StoreSettingsManager({
           <div>
             <h3 className="text-base font-bold">Pakistani Payment Methods</h3>
             <p className="text-xs text-muted-foreground">
-              Configure payment accounts, account titles, numbers, and custom instructions shown during checkout.
+              Configure payment accounts, account titles, numbers, and custom instructions shown
+              during checkout.
             </p>
           </div>
           <button
@@ -2455,15 +2655,17 @@ function StoreSettingsManager({
                     <span className="font-bold text-sm">{acc.label}</span>
                     <span
                       className={`rounded-full px-2 py-0.5 font-mono text-[10px] font-semibold ${
-                        acc.enabled ? "bg-success/20 text-success" : "bg-muted text-muted-foreground"
+                        acc.enabled
+                          ? "bg-success/20 text-success"
+                          : "bg-muted text-muted-foreground"
                       }`}
                     >
                       {acc.enabled ? "Enabled" : "Disabled"}
                     </span>
                   </div>
                   <p className="font-mono text-xs text-muted-foreground mt-0.5">
-                    <strong>Title:</strong> {acc.account_title || "—"} · <strong>Account / IBAN:</strong>{" "}
-                    {acc.account_number || "—"}
+                    <strong>Title:</strong> {acc.account_title || "—"} ·{" "}
+                    <strong>Account / IBAN:</strong> {acc.account_number || "—"}
                   </p>
                   {acc.instructions && (
                     <p className="text-xs text-muted-foreground mt-1">{acc.instructions}</p>
@@ -2496,7 +2698,9 @@ function StoreSettingsManager({
           <div className="w-full max-w-md rounded-3xl bg-background p-6 shadow-2xl space-y-4">
             <h3 className="text-lg font-bold">Configure Payment Method</h3>
             <div>
-              <label className="text-xs font-mono uppercase text-muted-foreground">Method Label</label>
+              <label className="text-xs font-mono uppercase text-muted-foreground">
+                Method Label
+              </label>
               <input
                 value={editingPayment.label}
                 onChange={(e) => setEditingPayment({ ...editingPayment, label: e.target.value })}
@@ -2505,7 +2709,9 @@ function StoreSettingsManager({
               />
             </div>
             <div>
-              <label className="text-xs font-mono uppercase text-muted-foreground">Account Title</label>
+              <label className="text-xs font-mono uppercase text-muted-foreground">
+                Account Title
+              </label>
               <input
                 value={editingPayment.account_title}
                 onChange={(e) =>

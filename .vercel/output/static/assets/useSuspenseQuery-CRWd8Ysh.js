@@ -1,1 +1,0 @@
-import{P as e,g as t,h as n,m as r}from"./shop-EFePsp0Z.js";function i(i,a){return i.queryFn===e&&console.error(`skipToken is not allowed for useSuspenseQuery`),r({...i,enabled:!0,suspense:!0,throwOnError:n,placeholderData:void 0},t,a)}export{i as t};

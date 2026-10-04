@@ -1,12 +1,4 @@
 import { queryOptions } from "@tanstack/react-query";
-import headphones from "@/assets/products/headphones.jpg";
-import earbuds from "@/assets/products/earbuds.jpg";
-import speaker from "@/assets/products/speaker.jpg";
-import charger from "@/assets/products/charger.jpg";
-import powerbank from "@/assets/products/powerbank.jpg";
-import keyboard from "@/assets/products/keyboard.jpg";
-import mouse from "@/assets/products/mouse.jpg";
-import cable from "@/assets/products/cable.jpg";
 import {
   getCategories,
   getProduct,
@@ -15,22 +7,67 @@ import {
   type Product,
 } from "./catalog.functions";
 
-const IMAGES: Record<string, string> = {
-  headphones,
-  earbuds,
-  speaker,
-  charger,
-  powerbank,
-  keyboard,
-  mouse,
-  cable,
-};
+const DEFAULT_SUPABASE_URL = "https://csvnjedaklqwgwyeidkm.supabase.co";
 
-/** Images are stored as keys (bundled art) or full URLs (uploaded later). */
-export function imageSrc(key: string | undefined) {
-  if (!key) return headphones;
-  if (key.startsWith("http") || key.startsWith("data:")) return key;
-  return IMAGES[key] ?? headphones;
+function getBaseSupabaseUrl(): string {
+  const url =
+    (typeof process !== "undefined" && (process.env["SUPABASE_URL"] || process.env["VITE_SUPABASE_URL"])) ||
+    (typeof import.meta !== "undefined" && import.meta.env?.VITE_SUPABASE_URL) ||
+    DEFAULT_SUPABASE_URL;
+  return url.replace(/\/+$/, "");
+}
+
+function getStorageBucket(): string {
+  const bucket =
+    (typeof process !== "undefined" && (process.env["STORAGE_BUCKET"] || process.env["VITE_SUPABASE_STORAGE_BUCKET"])) ||
+    (typeof import.meta !== "undefined" && import.meta.env?.VITE_SUPABASE_STORAGE_BUCKET);
+  return bucket || "product-images";
+}
+
+// Fallback placeholder data URI
+const PLACEHOLDER_IMG =
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 400' fill='%23f1f5f9'%3E%3Crect width='400' height='400' fill='%23f8fafc'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' font-family='sans-serif' font-size='20' fill='%2394a3b8'%3EGubberz Product%3C/text%3E%3C/svg%3E";
+
+const SEED_PRODUCT_NAMES = [
+  "headphones",
+  "earbuds",
+  "speaker",
+  "charger",
+  "powerbank",
+  "keyboard",
+  "mouse",
+  "cable",
+];
+
+/** Images are stored as full URLs (Supabase Storage / CDN) or key references */
+export function imageSrc(key: string | undefined): string {
+  if (!key) return PLACEHOLDER_IMG;
+
+  let cleanKey = key.trim();
+
+  // If a full URL contains the extra '/products/' subfolder for one of the seed images,
+  // fix it to point directly to the root of the bucket where the files were uploaded
+  for (const seed of SEED_PRODUCT_NAMES) {
+    if (cleanKey.includes(`/product-images/products/${seed}.`)) {
+      cleanKey = cleanKey.replace(
+        `/product-images/products/${seed}.`,
+        `/product-images/${seed}.`,
+      );
+      break;
+    }
+  }
+
+  if (cleanKey.startsWith("http://") || cleanKey.startsWith("https://") || cleanKey.startsWith("data:")) {
+    return cleanKey;
+  }
+
+  const base = getBaseSupabaseUrl();
+  const bucket = getStorageBucket();
+
+  // Clean filename: if key doesn't have an extension, append .jpg
+  const fileName = cleanKey.includes(".") ? cleanKey : `${cleanKey}.jpg`;
+
+  return `${base}/storage/v1/object/public/${bucket}/${fileName}`;
 }
 
 /** Provides multiple gallery photos for any product */
@@ -169,11 +206,7 @@ export const PRODUCT_VARIANTS: Record<string, ProductVariantInfo> = {
       { name: "20,000 mAh (22.5W Fast Charge)", extraPrice: 0 },
       { name: "30,000 mAh Max (65W Laptop Out)", extraPrice: 3500 },
     ],
-    inBox: [
-      "Brick 20K High-Density Power Bank",
-      "Short 30cm Fast USB-C Cable",
-      "Travel Pouch",
-    ],
+    inBox: ["Brick 20K High-Density Power Bank", "Short 30cm Fast USB-C Cable", "Travel Pouch"],
   },
   "glide-mouse": {
     colors: [
@@ -185,11 +218,7 @@ export const PRODUCT_VARIANTS: Record<string, ProductVariantInfo> = {
       { name: "Standard Ergonomic", extraPrice: 0 },
       { name: "Travel Slim", extraPrice: 0 },
     ],
-    inBox: [
-      "Glide Ergonomic Mouse",
-      "USB-A / Type-C Dual Receiver",
-      "USB-C Charging Cable",
-    ],
+    inBox: ["Glide Ergonomic Mouse", "USB-A / Type-C Dual Receiver", "USB-C Charging Cable"],
   },
   "noodle-usb-c-cable": {
     colors: [
@@ -202,10 +231,7 @@ export const PRODUCT_VARIANTS: Record<string, ProductVariantInfo> = {
       { name: "2.0 Metres (Bedside/Couch)", extraPrice: 400 },
       { name: "3.0 Metres (Studio Setup)", extraPrice: 800 },
     ],
-    inBox: [
-      "Noodle 100W Heavy-Duty Braided Cable",
-      "Silicone Cable Tidy Strap",
-    ],
+    inBox: ["Noodle 100W Heavy-Duty Braided Cable", "Silicone Cable Tidy Strap"],
   },
 };
 
