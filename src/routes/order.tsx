@@ -13,7 +13,10 @@ import {
   MapPin,
   ShieldCheck,
   Search,
+  Copy,
+  Share2,
 } from "lucide-react";
+import { toast } from "sonner";
 import { lookupOrder } from "@/lib/catalog.functions";
 import { formatPKR, imageSrc, settingsQuery } from "@/lib/shop";
 
@@ -302,19 +305,85 @@ function OrderPage() {
             </p>
           </div>
 
-          {/* WHATSAPP SUPPORT ACTION */}
+          {/* WHATSAPP ORDER SLIP & DISPATCH DESK */}
           {settings && (
-            <div className="print:hidden">
-              <a
-                href={`https://wa.me/${settings.whatsapp.replace(/\D/g, "")}?text=${encodeURIComponent(
-                  `Hi Gubberz! I am checking on my order #${order.code} for ${order.customer_name} (${order.city}).`,
-                )}`}
-                target="_blank"
-                rel="noreferrer"
-                className="press flex items-center justify-center gap-2 rounded-full bg-ink py-4 text-center font-bold text-sm text-ink-foreground shadow-md transition-colors hover:bg-primary"
-              >
-                <MessageCircle className="h-4 w-4" /> Message Gubberz Support on WhatsApp
-              </a>
+            <div className="print:hidden rounded-3xl border-2 border-emerald-500/40 bg-gradient-to-br from-emerald-500/10 via-surface/80 to-surface p-6 shadow-sm space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-emerald-500/20 pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-2xl bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+                    <MessageCircle className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h4 className="font-extrabold text-sm text-foreground">
+                      WhatsApp Dispatch & Confirmation Desk
+                    </h4>
+                    <p className="text-xs text-muted-foreground">
+                      Send your official order slip or payment screenshot to Gubberz packing team for priority dispatch.
+                    </p>
+                  </div>
+                </div>
+                <span className="shrink-0 rounded-full bg-emerald-500/20 px-2.5 py-1 font-mono text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
+                  Fast Support
+                </span>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <a
+                  href={`https://wa.me/${settings.whatsapp.replace(/\D/g, "")}?text=${encodeURIComponent(
+                    [
+                      `*GUBBERZ OFFICIAL ORDER SLIP*`,
+                      `Order Code: #${order.code}`,
+                      `Customer: ${order.customer_name}`,
+                      `Phone: ${order.phone}`,
+                      `City: ${order.city}`,
+                      `Address: ${order.address}`,
+                      ``,
+                      `*Items Ordered:*`,
+                      ...order.items.map(
+                        (i) =>
+                          `• ${i.qty}x ${i.name}${i.variant ? ` (${i.variant})` : ""} — ${formatPKR(i.unit_price * i.qty)}`,
+                      ),
+                      ``,
+                      `Subtotal: ${formatPKR(order.subtotal)}`,
+                      order.discount > 0 ? `Advance Discount: -${formatPKR(order.discount)}` : null,
+                      `Delivery: ${formatPKR(order.delivery_fee)}`,
+                      `*Total: ${formatPKR(order.total)}*`,
+                      `Payment Method: ${METHOD_LABELS[order.payment_method] ?? order.payment_method}`,
+                      `Status: ${STATUS_LABELS[order.status] ?? order.status}`,
+                      ``,
+                      `Track Online: https://gubberz.pk/order?code=${order.code}&phone=${order.phone}`,
+                    ]
+                      .filter(Boolean)
+                      .join("\n"),
+                  )}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="press flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 hover:bg-emerald-500 py-3.5 px-4 text-center font-bold text-xs sm:text-sm text-white shadow-md transition-all cursor-pointer"
+                >
+                  <MessageCircle className="h-4 w-4" /> Send Order Slip to WhatsApp
+                </a>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const text = [
+                      `*GUBBERZ OFFICIAL ORDER SLIP*`,
+                      `Order Code: #${order.code}`,
+                      `Customer: ${order.customer_name}`,
+                      `City: ${order.city}`,
+                      `Total: ${formatPKR(order.total)}`,
+                      `Payment: ${METHOD_LABELS[order.payment_method] ?? order.payment_method}`,
+                      `Items: ${order.items.map((i) => `${i.qty}x ${i.name}`).join(", ")}`,
+                      `Track: https://gubberz.pk/order?code=${order.code}&phone=${order.phone}`,
+                    ].join("\n");
+                    navigator.clipboard.writeText(text);
+                    toast.success("Order slip copied to clipboard!");
+                  }}
+                  className="press flex items-center justify-center gap-2 rounded-2xl border border-border/80 bg-background/80 hover:bg-surface py-3.5 px-4 text-center font-bold text-xs sm:text-sm text-foreground shadow-xs transition-colors cursor-pointer"
+                >
+                  <Copy className="h-4 w-4 text-primary" /> Copy Order Slip & Tracking Link
+                </button>
+              </div>
             </div>
           )}
         </div>

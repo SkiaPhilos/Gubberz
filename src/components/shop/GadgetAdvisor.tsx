@@ -33,13 +33,39 @@ const INITIAL_GREETING: ChatMessage = {
 };
 
 const SUGGESTED_PROMPTS = [
-  "Find me a clean desk setup",
-  "Which charger is best for my phone?",
+  "Build me a clean desk setup",
+  "Give me a travel gadget combo",
   "Best headphones for loud cousins",
-  "Where is your shop located?",
-  "Can you roleplay with me?",
+  "What's in my bag?",
+  "Which charger is best for my phone?",
   "Are your prices real or ghost prices?",
 ];
+
+function renderInlineFormatted(str: string): React.ReactNode[] {
+  // Parses **bold** and *italic* cleanly into JSX
+  const parts: React.ReactNode[] = [];
+  const boldRegex = /\*\*([^*]+)\*\*/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = boldRegex.exec(str)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(str.slice(lastIndex, match.index));
+    }
+    parts.push(
+      <strong key={match.index} className="font-bold text-foreground">
+        {match[1]}
+      </strong>,
+    );
+    lastIndex = match.index + match[0].length;
+  }
+
+  if (lastIndex < str.length) {
+    parts.push(str.slice(lastIndex));
+  }
+
+  return parts;
+}
 
 export function GadgetAdvisorModal() {
   const [open, setOpen] = useState(false);
@@ -85,6 +111,11 @@ export function GadgetAdvisorModal() {
           messages: newHistory
             .filter((m) => m.id !== "init")
             .map((m) => ({ role: m.role, content: m.content })),
+          cartItems: cart.items.map((item) => ({
+            name: item.name,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+          })),
         },
       });
 
@@ -129,37 +160,193 @@ export function GadgetAdvisorModal() {
     toast.success("Gubberoo memory refreshed!");
   };
 
-  // Helper to extract [slug:...] tags and render rich interactive cards
+  // Helper to extract [slug:...] tags, dynamic bundles, restore product names, and render interactive cards
   const renderMessageContent = (content: string) => {
+    // 0. Extract dynamic bundles if created by Gubberoo
+    const bundleRegex = /\[bundle:([^|\]]+)\|([a-z0-9,-]+)\]/g;
+    const dynamicBundles: { title: string; slugs: string[] }[] = [];
+    let bMatch: RegExpExecArray | null;
+
+    while ((bMatch = bundleRegex.exec(content)) !== null) {
+      const title = bMatch[1].trim();
+      const slugs = bMatch[2]
+        .split(",")
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean);
+      if (slugs.length > 0) {
+        dynamicBundles.push({ title, slugs });
+      }
+    }
+
+    // 1. Collect all mentioned product slugs for cards
     const slugRegex = /\[slug:([a-z0-9-]+)\]/g;
-    const parts: React.ReactNode[] = [];
-    let lastIndex = 0;
+    const mentionedSlugs: string[] = [];
     let match: RegExpExecArray | null;
 
-    const mentionedSlugs: string[] = [];
-
     while ((match = slugRegex.exec(content)) !== null) {
-      const slug = match[1];
-      mentionedSlugs.push(slug);
-
-      // Text before match
-      if (match.index > lastIndex) {
-        parts.push(content.slice(lastIndex, match.index));
+      if (!mentionedSlugs.includes(match[1])) {
+        mentionedSlugs.push(match[1]);
       }
-      lastIndex = match.index + match[0].length;
     }
 
-    if (lastIndex < content.length) {
-      parts.push(content.slice(lastIndex));
-    }
+    // 2. Clean up text and restore missing product names:
+    // Strip [bundle:...] from prose
+    let cleaned = content.replace(/\[bundle:[^\]]+\]/g, "");
 
-    const cleanText = parts.length > 0 ? parts : [content];
+    // If the model output **[slug:xyz]**, replace with **Product Name**
+    cleaned = cleaned.replace(/\*\*\[slug:([a-z0-9-]+)\]\*\*/g, (_, slug) => {
+      const prod = allProducts?.find((p) => p.slug === slug);
+      return `**${prod ? prod.name : slug}**`;
+    });
+
+    // If the model output "[slug:xyz]", replace with Product Name if not already preceded by bold name
+    cleaned = cleaned.replace(
+      /(\*\*[^*]+\*\*\s*)?\[slug:([a-z0-9-]+)\]/g,
+      (fullMatch, prefix, slug) => {
+        if (prefix && prefix.trim().length > 0) {
+          return prefix.trim();
+        }
+        const prod = allProducts?.find((p) => p.slug === slug);
+        return `**${prod ? prod.name : slug}**`;
+      },
+    );
+
+    // If there are stray empty asterisks like **** or *** from stripped tokens, eliminate them
+    cleaned = cleaned.replace(/\*\*\s*\*\*/g, "");
+
+    // 3. Format lines (bullet points, bold tags, paragraphs)
+    const paragraphs = cleaned.split("\n\n");
 
     return (
       <div className="space-y-3">
-        <div className="whitespace-pre-wrap leading-relaxed text-xs sm:text-sm">
-          {cleanText}
+        <div className="space-y-2.5 text-xs sm:text-sm leading-relaxed">
+          {paragraphs.map((para, pIdx) => {
+            const lines = para.split("\n");
+            return (
+              <div key={pIdx} className="space-y-1">
+                {lines.map((line, lIdx) => {
+                  const trimmed = line.trim();
+                  const isBullet =
+                    trimmed.startsWith("* ") ||
+                    trimmed.startsWith("- ") ||
+                    trimmed.startsWith("• ");
+                  const textOnly = isBullet
+                    ? trimmed.replace(/^[*•-]\s+/, "")
+                    : line;
+
+                  return (
+                    <div
+                      key={lIdx}
+                      className={isBullet ? "flex items-start gap-1.5 pl-1" : ""}
+                    >
+                      {isBullet && (
+                        <span className="text-primary mt-1 select-none font-bold text-xs">
+                          •
+                        </span>
+                      )}
+                      <span className="flex-1">
+                        {renderInlineFormatted(textOnly)}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
         </div>
+
+        {/* Render Curated Dynamic Bundles if Gubberoo built a custom rig */}
+        {dynamicBundles.map((b, bIdx) => {
+          const bundleProducts = b.slugs
+            .map((slug) => allProducts?.find((p) => p.slug === slug))
+            .filter((p): p is NonNullable<typeof p> => Boolean(p));
+
+          if (bundleProducts.length === 0) return null;
+          const bundleTotal = bundleProducts.reduce(
+            (sum, p) => sum + effectivePrice(p),
+            0,
+          );
+          const allInStock = bundleProducts.every((p) => p.stock > 0);
+
+          const handleAddBundle = () => {
+            let count = 0;
+            bundleProducts.forEach((p) => {
+              if (p.stock > 0) {
+                cart.addItem({
+                  productId: p.id,
+                  name: p.name,
+                  slug: p.slug,
+                  unitPrice: effectivePrice(p),
+                  image: p.images[0] ?? "",
+                  quantity: 1,
+                });
+                count++;
+              }
+            });
+            toast.success(`Added ${count} items from "${b.title}" to your bag!`);
+          };
+
+          return (
+            <div
+              key={bIdx}
+              className="mt-3 rounded-2xl border-2 border-primary/40 bg-gradient-to-br from-primary/10 via-surface/90 to-surface p-3.5 shadow-sm"
+            >
+              <div className="flex items-center justify-between gap-2 pb-2 mb-2 border-b border-border/50">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <Sparkles className="h-4 w-4 text-primary shrink-0 animate-pulse" />
+                  <span className="font-bold text-xs sm:text-sm text-foreground truncate">
+                    {b.title}
+                  </span>
+                </div>
+                <span className="shrink-0 rounded-full bg-primary/20 px-2 py-0.5 text-[10px] font-bold text-primary tracking-wide">
+                  Gubberoo Rig
+                </span>
+              </div>
+
+              <div className="space-y-1.5 mb-3">
+                {bundleProducts.map((p) => (
+                  <div
+                    key={p.id}
+                    className="flex items-center justify-between text-xs py-0.5"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="h-1.5 w-1.5 rounded-full bg-primary shrink-0" />
+                      <span className="truncate text-foreground/90 font-medium">
+                        {p.name}
+                      </span>
+                    </div>
+                    <span className="font-mono text-muted-foreground font-semibold shrink-0 ml-2">
+                      {formatPKR(effectivePrice(p))}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pt-2 border-t border-border/50">
+                <div>
+                  <span className="text-[10px] uppercase font-mono text-muted-foreground block">
+                    Combined Setup Total
+                  </span>
+                  <span className="font-mono text-sm font-black text-primary">
+                    {formatPKR(bundleTotal)}
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleAddBundle}
+                  disabled={!allInStock}
+                  className="press flex items-center justify-center gap-1.5 rounded-xl bg-primary px-3.5 py-2 text-xs font-bold text-primary-foreground shadow-xs hover:brightness-110 disabled:opacity-50 cursor-pointer"
+                >
+                  <ShoppingBag className="h-3.5 w-3.5" />
+                  {allInStock
+                    ? `Add Entire Setup (${bundleProducts.length} Items)`
+                    : "Some Items Out of Stock"}
+                </button>
+              </div>
+            </div>
+          );
+        })}
 
         {/* Render interactive product cards if Gubberoo cited any gadgets */}
         {mentionedSlugs.length > 0 && allProducts && (

@@ -32,6 +32,15 @@ const chatInputSchema = z.object({
       content: z.string().max(2000),
     }),
   ),
+  cartItems: z
+    .array(
+      z.object({
+        name: z.string(),
+        quantity: z.number(),
+        unitPrice: z.number(),
+      }),
+    )
+    .optional(),
   preferredVibe: z.string().optional(),
 });
 
@@ -59,8 +68,19 @@ STORE POLICIES & FACTS:
 - Orders ship same day or next day via trusted couriers (TCS, Trax, Leopards, Call Courier).
 
 RECOMMENDATIONS & LINKS:
-- When you recommend a gadget, mention its exact name, PKR price, key feature, and format its slug inside brackets like [slug:zap-65w-charger] so the storefront can render an interactive product preview card.
+- CRITICAL FORMATTING RULE: When mentioning any product, ALWAYS write its full actual name in bold, followed by its slug tag. E.g.: "**Hush Pro Headphones** [slug:hush-pro-headphones]" or "**Zap 65W Charger** [slug:zap-65w-charger]".
+- NEVER emit empty asterisks like "****" or write just "[slug:xyz]" without the product's actual title in bold!
 - Keep responses engaging, punchy, and formatted with clean bullet points or short paragraphs. Avoid gigantic walls of text.
+
+DYNAMIC CUSTOM BUNDLE & SETUP CREATOR:
+- When a user asks to "build a setup", "create a bundle", "make a combo", "what should I buy together?", or asks for multiple matching items, DYNAMICALLY handpick 2 to 4 matching items from the live catalog.
+- Invent a hilarious, sarcastic title for the custom rig, and add this tag:
+  [bundle:Bundle Title|slug1,slug2,...]
+  For example:
+  [bundle:The Shadi Survival Rig|hush-pro-headphones,zap-65w-charger,noodle-usb-c-cable]
+  or
+  [bundle:The Clean Minimalist Desk Kit|glide-mouse,zap-65w-charger]
+- The website turns this tag into an interactive "One-Tap Add Bundle to Bag" box with real prices and one-click purchasing!
 `;
 
 export const chatWithGubberoo = createServerFn({ method: "POST" })
@@ -90,7 +110,24 @@ export const chatWithGubberoo = createServerFn({ method: "POST" })
       console.warn("Could not query catalog for Gubberoo context:", e);
     }
 
-    const systemInstruction = `${GUBBEROO_SYSTEM_PROMPT}\n\nCURRENT LIVE GUBBERZ STORE INVENTORY (REAL-TIME):\n${catalogSummary || "Catalog loading..."}`;
+    const cartSummary =
+      data.cartItems && data.cartItems.length > 0
+        ? data.cartItems
+            .map(
+              (item) =>
+                `- ${item.quantity}x ${item.name} @ PKR ${item.unitPrice} each`,
+            )
+            .join("\n")
+        : "The customer's shopping bag is currently EMPTY (0 items).";
+
+    const systemInstruction = `${GUBBEROO_SYSTEM_PROMPT}
+
+CUSTOMER'S LIVE SHOPPING BAG (CART) ON GUBBERZ:
+${cartSummary}
+(Note: If the user asks "what's in my bag?", "what's in my cart?", or similar, refer to their real shopping bag above! If empty, tell them with classic sarcasm that their bag is emptier than their wallet and urge them to add some proper gadgets from our inventory).
+
+CURRENT LIVE GUBBERZ STORE INVENTORY (REAL-TIME):
+${catalogSummary || "Catalog loading..."}`;
 
     // 2. Format conversation history for Gemini API
     const contents = data.messages.map((m) => ({
