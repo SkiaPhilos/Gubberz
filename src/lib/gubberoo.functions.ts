@@ -99,7 +99,12 @@ export const chatWithGubberoo = createServerFn({ method: "POST" })
     }));
 
     // 3. Call Gemini using user's requested model gemini-3.5-flash-lite (with fallbacks)
-    const apiKey = process.env.GEMINI_API_KEY;
+    const USER_KEY = "AQ.Ab8RN6IUkqpDRc3I7EbfHP5O5oJb4cJ_QT-xdribPh8gPKlaAw";
+    const apiKey =
+      process.env.GEMINI_API_KEY && !process.env.GEMINI_API_KEY.includes("Lo8gTQx3")
+        ? process.env.GEMINI_API_KEY
+        : USER_KEY;
+
     if (apiKey) {
       const ai = new GoogleGenAI({
         apiKey,
