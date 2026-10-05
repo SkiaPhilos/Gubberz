@@ -1,316 +1,435 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "motion/react";
-import { Sparkles, ArrowRight, Check, X, RefreshCw } from "lucide-react";
+import {
+  Sparkles,
+  Send,
+  X,
+  RotateCcw,
+  ShoppingBag,
+  ExternalLink,
+  Bot,
+  User,
+  Zap,
+} from "lucide-react";
 import { toast } from "sonner";
 import { productsQuery, formatPKR, imageSrc, effectivePrice } from "@/lib/shop";
 import { useCart } from "@/lib/cart";
+import { chatWithGubberoo } from "@/lib/gubberoo.functions";
+import sitter from "@/assets/characters/sitter.png";
+
+type ChatMessage = {
+  id: string;
+  role: "user" | "model";
+  content: string;
+};
+
+const INITIAL_GREETING: ChatMessage = {
+  id: "init",
+  role: "model",
+  content:
+    "Sup! I'm **Gubberoo** — Gubberz's resident gadget concierge and tech genius. Tell me about your tragically unorganized desk, or ask me which charger won't fry your phone. \n\n*(And no, I won't roleplay a vampire or be your girlfriend. Keep it strictly tech, boss).* What are you shopping for?",
+};
+
+const SUGGESTED_PROMPTS = [
+  "Find me a clean desk setup",
+  "Which charger is best for my phone?",
+  "Best headphones for loud cousins",
+  "Where is your shop located?",
+  "Can you roleplay with me?",
+  "Are your prices real or ghost prices?",
+];
 
 export function GadgetAdvisorModal() {
   const [open, setOpen] = useState(false);
-  const [step, setStep] = useState(1);
-  const [vibe, setVibe] = useState<string>("desk");
-  const [priority, setPriority] = useState<string>("sound");
-  const [budget, setBudget] = useState<string>("mid");
+  const [messages, setMessages] = useState<ChatMessage[]>([INITIAL_GREETING]);
+  const [input, setInput] = useState("");
+  const [isTyping, setIsTyping] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const { data: allProducts } = useQuery(productsQuery());
   const cart = useCart();
 
-  const reset = () => {
-    setStep(1);
-    setVibe("desk");
-    setPriority("sound");
-    setBudget("mid");
-  };
-
-  // Determine top matching products based on choices
-  const getRecommendations = () => {
-    if (!allProducts || allProducts.length === 0) return [];
-
-    let pool = [...allProducts];
-
-    if (vibe === "desk") {
-      pool.sort((a, b) => (a.slug.includes("keyboard") || a.slug.includes("mouse") ? -1 : 1));
-    } else if (vibe === "commute") {
-      pool.sort((a, b) => (a.slug.includes("headphone") || a.slug.includes("power") ? -1 : 1));
-    } else {
-      pool.sort((a, b) => (a.slug.includes("buds") || a.slug.includes("cable") ? -1 : 1));
+  useEffect(() => {
+    if (open) {
+      setTimeout(() => inputRef.current?.focus(), 150);
     }
+  }, [open]);
 
-    if (budget === "budget") {
-      pool = pool.filter((p) => effectivePrice(p) <= 10000);
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
+  }, [messages, isTyping]);
 
-    return pool.slice(0, 2);
-  };
+  const handleSend = async (textToSend?: string) => {
+    const text = (textToSend || input).trim();
+    if (!text || isTyping) return;
 
-  const recommended = getRecommendations();
-  const bundleTotal = recommended.reduce((sum, p) => sum + effectivePrice(p), 0);
-  const discountedBundle = Math.round(bundleTotal * 0.9);
+    const userMsg: ChatMessage = {
+      id: crypto.randomUUID(),
+      role: "user",
+      content: text,
+    };
 
-  const addSetupToCart = () => {
-    recommended.forEach((p) => {
-      cart.add({
-        id: p.id,
-        slug: p.slug,
-        name: `${p.name} (Advisor Setup)`,
-        image: p.images[0] ?? "",
-        unitPrice: Math.round(effectivePrice(p) * 0.9),
-        listPrice: p.price,
-        stock: p.stock,
+    const newHistory = [...messages, userMsg];
+    setMessages(newHistory);
+    setInput("");
+    setIsTyping(true);
+
+    try {
+      const res = await chatWithGubberoo({
+        data: {
+          messages: newHistory
+            .filter((m) => m.id !== "init")
+            .map((m) => ({ role: m.role, content: m.content })),
+        },
       });
-    });
-    toast.success("Setup bundle added to your bag with 10% discount!");
-    setOpen(false);
-    cart.setOpen(true);
+
+      if (res.ok && res.reply) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: crypto.randomUUID(),
+            role: "model",
+            content: res.reply,
+          },
+        ]);
+      } else {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: crypto.randomUUID(),
+            role: "model",
+            content:
+              "My sarcastic neurons tripped over a loose wire. Try asking me again, boss!",
+          },
+        ]);
+      }
+    } catch (err: any) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: crypto.randomUUID(),
+          role: "model",
+          content:
+            "My sarcastic neurons tripped over a loose wire. Ask me about our headphones, chargers, or cables and I'm right back on!",
+        },
+      ]);
+    } finally {
+      setIsTyping(false);
+    }
+  };
+
+  const handleReset = () => {
+    setMessages([INITIAL_GREETING]);
+    setInput("");
+    toast.success("Gubberoo memory refreshed!");
+  };
+
+  // Helper to extract [slug:...] tags and render rich interactive cards
+  const renderMessageContent = (content: string) => {
+    const slugRegex = /\[slug:([a-z0-9-]+)\]/g;
+    const parts: React.ReactNode[] = [];
+    let lastIndex = 0;
+    let match: RegExpExecArray | null;
+
+    const mentionedSlugs: string[] = [];
+
+    while ((match = slugRegex.exec(content)) !== null) {
+      const slug = match[1];
+      mentionedSlugs.push(slug);
+
+      // Text before match
+      if (match.index > lastIndex) {
+        parts.push(content.slice(lastIndex, match.index));
+      }
+      lastIndex = match.index + match[0].length;
+    }
+
+    if (lastIndex < content.length) {
+      parts.push(content.slice(lastIndex));
+    }
+
+    const cleanText = parts.length > 0 ? parts : [content];
+
+    return (
+      <div className="space-y-3">
+        <div className="whitespace-pre-wrap leading-relaxed text-xs sm:text-sm">
+          {cleanText}
+        </div>
+
+        {/* Render interactive product cards if Gubberoo cited any gadgets */}
+        {mentionedSlugs.length > 0 && allProducts && (
+          <div className="mt-3 space-y-2 pt-2 border-t border-border/50">
+            <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground font-bold flex items-center gap-1">
+              <Zap className="h-3 w-3 text-primary" /> Mentioned in Recommendation:
+            </span>
+            <div className="grid gap-2">
+              {mentionedSlugs.map((slug) => {
+                const prod = allProducts.find((p) => p.slug === slug);
+                if (!prod) return null;
+                const price = effectivePrice(prod);
+                const isOutOfStock = prod.stock <= 0;
+
+                return (
+                  <div
+                    key={prod.id}
+                    className="flex items-center justify-between gap-3 rounded-2xl border border-border/80 bg-background/90 p-2.5 shadow-xs transition-all hover:border-primary/40"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <img
+                        src={imageSrc(prod.images[0])}
+                        alt=""
+                        className="h-11 w-11 shrink-0 rounded-xl bg-surface object-contain mix-blend-multiply p-0.5"
+                      />
+                      <div className="min-w-0">
+                        <Link
+                          to="/product/$slug"
+                          params={{ slug: prod.slug }}
+                          onClick={() => setOpen(false)}
+                          className="truncate text-xs font-bold text-foreground hover:text-primary transition-colors block"
+                        >
+                          {prod.name}
+                        </Link>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="font-mono text-xs font-bold text-primary">
+                            {formatPKR(price)}
+                          </span>
+                          <span
+                            className={`font-mono text-[10px] ${
+                              isOutOfStock
+                                ? "text-destructive font-bold"
+                                : "text-muted-foreground"
+                            }`}
+                          >
+                            {isOutOfStock ? "Out of stock" : `${prod.stock} in stock`}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <Link
+                        to="/product/$slug"
+                        params={{ slug: prod.slug }}
+                        onClick={() => setOpen(false)}
+                        className="press rounded-lg bg-surface p-1.5 text-muted-foreground hover:text-foreground"
+                        title="View Product"
+                      >
+                        <ExternalLink className="h-3.5 w-3.5" />
+                      </Link>
+                      <button
+                        type="button"
+                        disabled={isOutOfStock}
+                        onClick={() => {
+                          cart.add({
+                            id: prod.id,
+                            slug: prod.slug,
+                            name: `${prod.name} (Gubberoo Pick)`,
+                            image: prod.images[0] ?? "",
+                            unitPrice: price,
+                            listPrice: prod.price,
+                            stock: prod.stock,
+                          });
+                          toast.success(`${prod.name} added to your bag!`, {
+                            action: {
+                              label: "View bag",
+                              onClick: () => cart.setOpen(true),
+                            },
+                          });
+                        }}
+                        className="press flex items-center gap-1 rounded-full bg-primary px-3 py-1 font-mono text-[10px] font-bold text-primary-foreground disabled:opacity-40"
+                      >
+                        <ShoppingBag className="h-3 w-3" />
+                        <span>Add</span>
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    );
   };
 
   return (
     <>
-      {/* TRIGGER BUTTON - STACKED NEATLY ABOVE WHATSAPP WITH ZERO OVERLAP */}
+      {/* TRIGGER BUTTON - STACKED NEATLY ABOVE WHATSAPP */}
       <button
-        onClick={() => {
-          reset();
-          setOpen(true);
-        }}
-        className="press fixed bottom-20 right-5 z-30 flex items-center gap-2 rounded-full border border-primary/40 bg-primary px-4 py-2.5 text-xs font-bold text-primary-foreground shadow-xl transition-all hover:scale-105"
-        aria-label="Find my setup advisor"
+        onClick={() => setOpen(true)}
+        className="press fixed bottom-20 right-5 z-30 flex items-center gap-2 rounded-full border border-primary/40 bg-primary px-4 py-2.5 text-xs font-bold text-primary-foreground shadow-xl transition-all hover:scale-105 active:scale-95"
+        aria-label="Ask Gubberoo AI Setup Advisor"
       >
-        <Sparkles className="h-4 w-4 fill-current" />
-        <span>Find My Setup</span>
+        <Sparkles className="h-4 w-4 fill-current animate-spin-slow" />
+        <span className="font-semibold">Ask Gubberoo · Setup</span>
+        <span className="flex h-2 w-2 rounded-full bg-white animate-pulse" />
       </button>
 
-      {/* ADVISOR MODAL */}
+      {/* GUBBEROO CHAT MODAL */}
       <AnimatePresence>
         {open && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:justify-end sm:p-6 bg-black/50 backdrop-blur-xs">
             <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              className="relative w-full max-w-lg rounded-3xl bg-background p-6 md:p-8 shadow-2xl border max-h-[90vh] overflow-y-auto"
+              initial={{ y: 60, opacity: 0, scale: 0.95 }}
+              animate={{ y: 0, opacity: 1, scale: 1 }}
+              exit={{ y: 60, opacity: 0, scale: 0.95 }}
+              transition={{ type: "spring", stiffness: 350, damping: 30 }}
+              className="relative flex h-[85vh] sm:h-[620px] w-full max-w-md flex-col rounded-t-3xl sm:rounded-3xl border border-border/80 bg-background shadow-2xl overflow-hidden"
             >
-              {/* Close Button */}
-              <button
-                onClick={() => setOpen(false)}
-                className="absolute right-5 top-5 p-2 rounded-full hover:bg-surface text-muted-foreground hover:text-foreground"
-              >
-                <X className="h-4 w-4" />
-              </button>
-
-              {/* Header with Mascot */}
-              <div className="flex items-center gap-3">
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary border border-primary/20">
-                  <Sparkles className="h-6 w-6" />
-                </div>
-                <div>
-                  <h3 className="text-xl font-extrabold tracking-tight">Gubberz Setup Advisor</h3>
-                  <p className="text-xs text-muted-foreground">
-                    Answer 3 quick questions to discover your ideal gadget kit
-                  </p>
-                </div>
-              </div>
-
-              {/* Progress Indicator */}
-              <div className="mt-6 flex gap-2">
-                {[1, 2, 3, 4].map((s) => (
-                  <div
-                    key={s}
-                    className={`h-1.5 flex-1 rounded-full transition-colors ${
-                      step >= s ? "bg-primary" : "bg-surface"
-                    }`}
-                  />
-                ))}
-              </div>
-
-              {/* STEP 1: Setting */}
-              {step === 1 && (
-                <div className="mt-6 space-y-4">
-                  <h4 className="font-bold text-base">Where do you spend most of your time?</h4>
-                  <div className="grid gap-3">
-                    {[
-                      { id: "desk", label: "Minimalist Desk / Work From Home", sub: "Focused on clean setup & ergonomics" },
-                      { id: "commute", label: "Daily Commute & Travel", sub: "Noise cancellation & mobile battery power" },
-                      { id: "casual", label: "Casual Everyday Carry", sub: "Compact, durable gear that fits in a pocket" },
-                    ].map((opt) => (
-                      <button
-                        key={opt.id}
-                        type="button"
-                        onClick={() => {
-                          setVibe(opt.id);
-                          setStep(2);
-                        }}
-                        className={`press flex items-start justify-between rounded-2xl border p-4 text-left transition-all ${
-                          vibe === opt.id
-                            ? "border-primary bg-primary/10 ring-2 ring-primary/20"
-                            : "border-border/60 bg-surface hover:bg-muted"
-                        }`}
-                      >
-                        <div>
-                          <p className="font-bold text-sm">{opt.label}</p>
-                          <p className="text-xs text-muted-foreground mt-0.5">{opt.sub}</p>
-                        </div>
-                        <ArrowRight className="h-4 w-4 text-muted-foreground mt-1" />
-                      </button>
-                    ))}
+              {/* Header */}
+              <div className="flex items-center justify-between border-b border-border/70 bg-surface/50 px-4 py-3.5 backdrop-blur-md">
+                <div className="flex items-center gap-3">
+                  <div className="relative flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/10 border border-primary/20 overflow-hidden">
+                    <img
+                      src={sitter}
+                      alt="Gubberoo"
+                      className="h-8 w-8 object-contain"
+                    />
+                    <span className="absolute bottom-1 right-1 h-2 w-2 rounded-full bg-success ring-1 ring-background" />
                   </div>
-                </div>
-              )}
-
-              {/* STEP 2: Priority */}
-              {step === 2 && (
-                <div className="mt-6 space-y-4">
-                  <h4 className="font-bold text-base">What feature matters most to you?</h4>
-                  <div className="grid gap-3">
-                    {[
-                      { id: "sound", label: "Immersive Audio & ANC", sub: "Punchy sound profile with noise isolation" },
-                      { id: "power", label: "Fast Charging & All-Day Battery", sub: "Never run out of battery on the road" },
-                      { id: "typing", label: "Tactile Feel & Precision Control", sub: "Mechanical clack & smooth glide sensor" },
-                    ].map((opt) => (
-                      <button
-                        key={opt.id}
-                        type="button"
-                        onClick={() => {
-                          setPriority(opt.id);
-                          setStep(3);
-                        }}
-                        className={`press flex items-start justify-between rounded-2xl border p-4 text-left transition-all ${
-                          priority === opt.id
-                            ? "border-primary bg-primary/10 ring-2 ring-primary/20"
-                            : "border-border/60 bg-surface hover:bg-muted"
-                        }`}
-                      >
-                        <div>
-                          <p className="font-bold text-sm">{opt.label}</p>
-                          <p className="text-xs text-muted-foreground mt-0.5">{opt.sub}</p>
-                        </div>
-                        <ArrowRight className="h-4 w-4 text-muted-foreground mt-1" />
-                      </button>
-                    ))}
-                  </div>
-                  <button
-                    onClick={() => setStep(1)}
-                    className="text-xs text-muted-foreground hover:underline"
-                  >
-                    ← Back
-                  </button>
-                </div>
-              )}
-
-              {/* STEP 3: Budget */}
-              {step === 3 && (
-                <div className="mt-6 space-y-4">
-                  <h4 className="font-bold text-base">What is your target budget?</h4>
-                  <div className="grid gap-3">
-                    {[
-                      { id: "budget", label: "Budget Friendly (Under Rs 10,000)", sub: "Maximum value essentials" },
-                      { id: "mid", label: "Sweet Spot (Rs 10,000 – Rs 25,000)", sub: "Best balanced performance & materials" },
-                      { id: "pro", label: "Flagship / Pro Tier", sub: "Top tier acoustic & tactile hardware" },
-                    ].map((opt) => (
-                      <button
-                        key={opt.id}
-                        type="button"
-                        onClick={() => {
-                          setBudget(opt.id);
-                          setStep(4);
-                        }}
-                        className={`press flex items-start justify-between rounded-2xl border p-4 text-left transition-all ${
-                          budget === opt.id
-                            ? "border-primary bg-primary/10 ring-2 ring-primary/20"
-                            : "border-border/60 bg-surface hover:bg-muted"
-                        }`}
-                      >
-                        <div>
-                          <p className="font-bold text-sm">{opt.label}</p>
-                          <p className="text-xs text-muted-foreground mt-0.5">{opt.sub}</p>
-                        </div>
-                        <ArrowRight className="h-4 w-4 text-muted-foreground mt-1" />
-                      </button>
-                    ))}
-                  </div>
-                  <button
-                    onClick={() => setStep(2)}
-                    className="text-xs text-muted-foreground hover:underline"
-                  >
-                    ← Back
-                  </button>
-                </div>
-              )}
-
-              {/* STEP 4: Recommendations */}
-              {step === 4 && (
-                <div className="mt-6 space-y-5">
                   <div>
-                    <span className="font-mono text-xs uppercase tracking-wider text-primary font-bold">
-                      Your Curated Setup
-                    </span>
-                    <h4 className="mt-1 text-2xl font-extrabold tracking-tight">
-                      Recommended by Gubberz
-                    </h4>
-                  </div>
-
-                  <div className="space-y-3">
-                    {recommended.map((item) => (
-                      <div
-                        key={item.id}
-                        className="flex items-center gap-4 rounded-2xl border bg-surface p-3.5"
-                      >
-                        <img
-                          src={imageSrc(item.images[0])}
-                          alt=""
-                          className="h-16 w-16 rounded-xl object-contain bg-background mix-blend-multiply border"
-                        />
-                        <div className="flex-1 min-w-0">
-                          <p className="font-bold text-sm truncate">{item.name}</p>
-                          <p className="text-xs text-muted-foreground line-clamp-1">
-                            {item.short_description}
-                          </p>
-                          <p className="font-mono text-xs font-bold text-primary mt-1">
-                            {formatPKR(effectivePrice(item))}
-                          </p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Bundle summary */}
-                  <div className="rounded-2xl bg-surface/70 p-4 border flex items-center justify-between text-xs">
-                    <div>
-                      <p className="text-muted-foreground">Bundle Total (10% Off):</p>
-                      <span className="font-mono text-lg font-black text-foreground">
-                        {formatPKR(discountedBundle)}
-                      </span>
-                      <span className="ml-2 font-mono text-muted-foreground line-through">
-                        {formatPKR(bundleTotal)}
+                    <div className="flex items-center gap-1.5">
+                      <h3 className="text-sm font-extrabold text-foreground">Gubberoo</h3>
+                      <span className="rounded-full bg-primary/15 px-2 py-0.5 font-mono text-[9px] uppercase font-bold text-primary">
+                        AI Concierge
                       </span>
                     </div>
-
-                    <button
-                      onClick={addSetupToCart}
-                      className="press rounded-full bg-ink px-5 py-2.5 font-bold text-ink-foreground hover:bg-primary shadow-sm"
-                    >
-                      Add Setup to Bag
-                    </button>
-                  </div>
-
-                  <div className="flex justify-between items-center pt-2">
-                    <button
-                      onClick={reset}
-                      className="press flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
-                    >
-                      <RefreshCw className="h-3.5 w-3.5" />
-                      <span>Retake Quiz</span>
-                    </button>
-                    <button
-                      onClick={() => setOpen(false)}
-                      className="press text-xs font-semibold hover:underline"
-                    >
-                      Close
-                    </button>
+                    <p className="text-[11px] text-muted-foreground font-mono">
+                      Sarcastic, opinionated & fully stocked
+                    </p>
                   </div>
                 </div>
-              )}
+
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={handleReset}
+                    className="press rounded-full p-2 text-muted-foreground hover:bg-surface hover:text-foreground"
+                    title="Reset Chat"
+                  >
+                    <RotateCcw className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setOpen(false)}
+                    className="press rounded-full p-2 text-muted-foreground hover:bg-surface hover:text-foreground"
+                    title="Close"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Chat Thread */}
+              <div
+                ref={scrollRef}
+                className="flex-1 overflow-y-auto p-4 space-y-4 text-xs sm:text-sm"
+              >
+                {messages.map((m) => (
+                  <div
+                    key={m.id}
+                    className={`flex items-start gap-2.5 ${
+                      m.role === "user" ? "flex-row-reverse" : "flex-row"
+                    }`}
+                  >
+                    <div
+                      className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                        m.role === "user"
+                          ? "bg-ink text-ink-foreground"
+                          : "bg-primary/10 text-primary border border-primary/20"
+                      }`}
+                    >
+                      {m.role === "user" ? (
+                        <User className="h-3.5 w-3.5" />
+                      ) : (
+                        <Bot className="h-3.5 w-3.5" />
+                      )}
+                    </div>
+
+                    <div
+                      className={`rounded-2xl px-4 py-3 max-w-[85%] shadow-xs ${
+                        m.role === "user"
+                          ? "bg-ink text-ink-foreground rounded-tr-xs"
+                          : "bg-surface border border-border/60 text-foreground rounded-tl-xs"
+                      }`}
+                    >
+                      {m.role === "model" ? (
+                        renderMessageContent(m.content)
+                      ) : (
+                        <p className="whitespace-pre-wrap leading-relaxed">{m.content}</p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+
+                {isTyping && (
+                  <div className="flex items-center gap-2.5">
+                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary border border-primary/20">
+                      <Bot className="h-3.5 w-3.5" />
+                    </div>
+                    <div className="rounded-2xl bg-surface border px-4 py-2.5 text-xs text-muted-foreground flex items-center gap-2">
+                      <span className="font-mono text-[11px]">
+                        Gubberoo is crafting a sarcastic answer
+                      </span>
+                      <span className="flex gap-1">
+                        <span className="h-1.5 w-1.5 rounded-full bg-primary animate-bounce [animation-delay:-0.3s]" />
+                        <span className="h-1.5 w-1.5 rounded-full bg-primary animate-bounce [animation-delay:-0.15s]" />
+                        <span className="h-1.5 w-1.5 rounded-full bg-primary animate-bounce" />
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Quick Prompts Bar */}
+              <div className="border-t border-border/50 bg-background/60 px-3 py-2">
+                <p className="px-1 text-[10px] font-mono uppercase text-muted-foreground font-semibold mb-1.5">
+                  Try asking:
+                </p>
+                <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                  {SUGGESTED_PROMPTS.map((prompt, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => handleSend(prompt)}
+                      className="press shrink-0 rounded-full border border-border/80 bg-surface px-3 py-1 font-mono text-[11px] text-foreground hover:border-primary/40 hover:bg-primary/10 transition-colors"
+                    >
+                      {prompt}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Input Footer */}
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleSend();
+                }}
+                className="flex items-center gap-2 border-t border-border/70 bg-background p-3"
+              >
+                <input
+                  ref={inputRef}
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  placeholder="Ask Gubberoo about gadgets, specs, setups…"
+                  disabled={isTyping}
+                  className="h-11 flex-1 rounded-2xl bg-surface px-4 text-xs sm:text-sm outline-none ring-primary focus:ring-2 disabled:opacity-50"
+                />
+                <button
+                  type="submit"
+                  disabled={!input.trim() || isTyping}
+                  className="press flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-sm hover:scale-105 active:scale-95 disabled:opacity-40 disabled:hover:scale-100 transition-all"
+                  aria-label="Send message to Gubberoo"
+                >
+                  <Send className="h-4 w-4" />
+                </button>
+              </form>
             </motion.div>
           </div>
         )}

@@ -328,6 +328,43 @@ export function SiteHeader() {
               />
             </form>
 
+            {/* Mobile Search Autocomplete Preview (Phase 5) */}
+            {q.trim().length >= 1 && (
+              <div className="mt-3 max-h-60 overflow-y-auto rounded-2xl border bg-surface/80 p-2 space-y-1">
+                <p className="px-2 py-1 font-mono text-[10px] uppercase text-muted-foreground">
+                  Matching Gadgets ({searchResults.length})
+                </p>
+                {searchResults.length === 0 ? (
+                  <p className="px-2 py-2 text-xs text-muted-foreground">No matches found.</p>
+                ) : (
+                  searchResults.map((p) => (
+                    <Link
+                      key={p.id}
+                      to="/product/$slug"
+                      params={{ slug: p.slug }}
+                      onClick={() => {
+                        setMenu(false);
+                        setQ("");
+                      }}
+                      className="flex items-center gap-3 rounded-xl p-2 hover:bg-background transition-colors"
+                    >
+                      <img
+                        src={imageSrc(p.images[0])}
+                        alt=""
+                        className="h-10 w-10 rounded-lg object-contain bg-background mix-blend-multiply"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="truncate text-xs font-bold text-foreground">{p.name}</p>
+                        <p className="font-mono text-xs font-semibold text-primary">
+                          {formatPKR(effectivePrice(p))}
+                        </p>
+                      </div>
+                    </Link>
+                  ))
+                )}
+              </div>
+            )}
+
             <div className="mt-4 flex gap-3">
               <button
                 onClick={() => {

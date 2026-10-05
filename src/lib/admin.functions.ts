@@ -132,7 +132,7 @@ export const getAdminSnapshot = createServerFn({ method: "GET" })
         db
           .from("products")
           .select(
-            "id,name,slug,sku,brand,category_id,short_description,description,price,sale_price,stock,low_stock_threshold,images,specs,features,tags,published,featured,created_at,updated_at",
+            "id,name,slug,sku,brand,category_id,short_description,description,price,sale_price,stock,low_stock_threshold,images,specs,features,tags,published,featured,variants,created_at,updated_at",
           )
           .order("updated_at", { ascending: false }),
         db.from("categories").select("*").order("sort_order"),
@@ -377,6 +377,7 @@ export const saveProduct = createServerFn({ method: "POST" })
         tags: z.array(z.string().trim()).default([]),
         published: z.boolean().default(true),
         featured: z.boolean().default(false),
+        variants: z.union([z.record(z.unknown()), z.array(z.unknown())]).optional().default({}),
       })
       .parse(input),
   )
@@ -400,6 +401,7 @@ export const saveProduct = createServerFn({ method: "POST" })
       tags: data.tags,
       published: data.published,
       featured: data.featured,
+      variants: data.variants || {},
       updated_at: new Date().toISOString(),
     };
 

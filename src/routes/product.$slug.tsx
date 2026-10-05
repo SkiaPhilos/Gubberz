@@ -16,6 +16,7 @@ import {
   MapPin,
   Sparkles,
   Heart,
+  ChevronDown,
 } from "lucide-react";
 import {
   availability,
@@ -363,6 +364,39 @@ function ProductPage() {
               </span>
             )}
 
+            {/* Torras & Apple-inspired Floating Color Switcher inside Image Box */}
+            {variantInfo.colors.length > 1 && (
+              <div
+                onClick={(e) => e.stopPropagation()}
+                className="absolute bottom-5 left-5 z-20 flex items-center gap-2 rounded-full bg-background/85 px-3 py-1.5 backdrop-blur-md border border-border/50 shadow-md"
+              >
+                {variantInfo.colors.map((c) => (
+                  <button
+                    key={c.name}
+                    type="button"
+                    title={c.name}
+                    onClick={() => {
+                      setSelectedColor(c.name);
+                      if (c.image) {
+                        const targetIdx = gallery.findIndex((g) => g.src === c.image);
+                        if (targetIdx !== -1) setActiveImgIndex(targetIdx);
+                      }
+                    }}
+                    style={{ backgroundColor: c.hex }}
+                    className={`h-4 w-4 rounded-full border border-black/20 transition-all ${
+                      selectedColor === c.name
+                        ? "ring-2 ring-primary ring-offset-2 ring-offset-background scale-110"
+                        : "opacity-80 hover:opacity-100 hover:scale-110"
+                    }`}
+                    aria-label={`Select colour: ${c.name}`}
+                  />
+                ))}
+                <span className="font-mono text-[10px] font-semibold text-muted-foreground ml-1 hidden sm:inline">
+                  {selectedColor}
+                </span>
+              </div>
+            )}
+
             <span className="absolute bottom-5 right-5 rounded-full bg-background/90 px-3 py-1 font-mono text-[11px] font-semibold text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity">
               Click to enlarge ↗
             </span>
@@ -495,35 +529,39 @@ function ProductPage() {
             </div>
           )}
 
-          {/* CUSTOMIZABLE: SIZES / EDITIONS / SPECS OPTIONS */}
+          {/* CUSTOMIZABLE: SIZES / EDITIONS / SPECS OPTIONS (DROPDOWN) */}
           {variantInfo.sizes.length > 0 && (
-            <div className="space-y-3">
-              <span className="text-xs font-mono uppercase tracking-wider text-muted-foreground">
-                Configuration / Edition
-              </span>
-              <div className="grid gap-2 sm:grid-cols-2">
-                {variantInfo.sizes.map((s) => (
-                  <button
-                    key={s.name}
-                    type="button"
-                    onClick={() => setSelectedSize(s.name)}
-                    className={`press flex items-center justify-between rounded-2xl border p-3.5 text-left text-xs font-semibold transition-all ${
-                      selectedSize === s.name
-                        ? "border-primary bg-primary/10 text-foreground ring-2 ring-primary/20"
-                        : "border-border/60 bg-surface text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    <span className="truncate">{s.name}</span>
-                    {s.extraPrice && s.extraPrice > 0 ? (
-                      <span className="font-mono text-primary font-bold ml-2">
-                        +{formatPKR(s.extraPrice)}
-                      </span>
-                    ) : (
-                      <span className="text-muted-foreground/80 font-normal ml-2">Included</span>
-                    )}
-                  </button>
-                ))}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-mono uppercase tracking-wider text-muted-foreground">
+                  {variantInfo.variantType || "Configuration / Size"}
+                </label>
+                {currentSizeObj && (
+                  <span className="font-mono text-xs font-semibold text-foreground">
+                    {currentSizeObj.name}
+                  </span>
+                )}
               </div>
+              <div className="relative">
+                <select
+                  value={selectedSize}
+                  onChange={(e) => setSelectedSize(e.target.value)}
+                  className="w-full appearance-none rounded-2xl border border-border bg-surface px-4 py-3.5 pr-10 text-sm font-semibold outline-none ring-primary focus:ring-2 transition-all cursor-pointer"
+                >
+                  {variantInfo.sizes.map((s) => (
+                    <option key={s.name} value={s.name}>
+                      {s.name}
+                      {s.extraPrice && s.extraPrice > 0 ? ` (+${formatPKR(s.extraPrice)})` : ""}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              </div>
+              {currentSizeObj?.specsNote && (
+                <p className="text-[11px] font-mono text-muted-foreground">
+                  ℹ {currentSizeObj.specsNote}
+                </p>
+              )}
             </div>
           )}
 
@@ -1165,6 +1203,45 @@ function ProductPage() {
           </div>
         </div>
       )}
+
+      {/* Sticky Mobile "Add to Bag" Bottom Bar (Phase 5) */}
+      <AnimatePresence>
+        {showStickyBar && avail.tone !== "out" && (
+          <motion.div
+            initial={{ y: 80, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 80, opacity: 0 }}
+            transition={{ type: "spring", stiffness: 350, damping: 30 }}
+            className="fixed bottom-0 left-0 right-0 z-40 flex items-center justify-between gap-3 border-t border-border/80 bg-background/95 px-4 py-3 backdrop-blur-lg shadow-lg md:hidden"
+          >
+            <div className="flex min-w-0 items-center gap-3">
+              <img
+                src={gallery[activeImgIndex]?.src || imageSrc(p.images[0])}
+                alt=""
+                className="h-11 w-11 shrink-0 rounded-xl object-contain bg-surface mix-blend-multiply"
+              />
+              <div className="min-w-0">
+                <p className="truncate text-xs font-bold">{p.name}</p>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-xs font-bold text-primary">
+                    {formatPKR(totalPrice)}
+                  </span>
+                  <span className="truncate text-[10px] text-muted-foreground font-mono">
+                    {selectedColor} · {selectedSize}
+                  </span>
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={add}
+              className="press shrink-0 rounded-full bg-primary px-5 py-2.5 font-mono text-xs font-bold uppercase tracking-wider text-primary-foreground shadow-md transition-transform active:scale-95"
+            >
+              Add to bag
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Lightbox / Zoom Dialog */}
       {lightboxOpen && (

@@ -1,10 +1,10 @@
 import { Link } from "@tanstack/react-router";
 import { Plus, Heart } from "lucide-react";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import type { Product } from "@/lib/catalog.functions";
-import { availability, effectivePrice, formatPKR, imageSrc } from "@/lib/shop";
+import { availability, effectivePrice, formatPKR, getProductVariants, imageSrc } from "@/lib/shop";
 import { flyToCart, useCart } from "@/lib/cart";
 import { useWishlist } from "@/lib/discovery";
 
@@ -17,15 +17,22 @@ export function ProductCard({ product, size = "md" }: { product: Product; size?:
   const avail = availability(product);
   const isWishlisted = wishlist.has(product.id);
 
+  const variantInfo = getProductVariants(product);
+  const [activeColor, setActiveColor] = useState(variantInfo.colors[0]?.name ?? "");
+  const [activeImg, setActiveImg] = useState<string | null>(null);
+
+  const displayImg = activeImg || product.images[0];
+
   const add = () => {
     const ok = cart.add({
       id: product.id,
       slug: product.slug,
       name: product.name,
-      image: product.images[0] ?? "",
+      image: displayImg ?? "",
       unitPrice: price,
       listPrice: product.price,
       stock: product.stock,
+      variant: activeColor || undefined,
     });
     if (ok) {
       flyToCart(imgRef.current, cart.cartIconRef.current);
@@ -42,7 +49,7 @@ export function ProductCard({ product, size = "md" }: { product: Product; size?:
       id: product.id,
       slug: product.slug,
       name: product.name,
-      image: product.images[0] ?? "",
+      image: displayImg ?? "",
       unitPrice: price,
       listPrice: product.price,
       stock: product.stock,
@@ -71,13 +78,48 @@ export function ProductCard({ product, size = "md" }: { product: Product; size?:
         >
           <img
             ref={imgRef}
-            src={imageSrc(product.images[0])}
+            src={imageSrc(displayImg)}
             alt={product.name}
             width={1024}
             height={1024}
             loading="lazy"
             className="h-full w-full max-h-64 object-contain mix-blend-multiply transition-transform duration-500 ease-[cubic-bezier(.2,.8,.2,1)] motion-safe:group-hover:scale-105 motion-safe:group-hover:-rotate-1 motion-safe:group-active:scale-95"
           />
+
+          {/* Torras-style micro color swatches inside image card */}
+          {variantInfo.colors.length > 1 && (
+            <div
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+              className="absolute bottom-3 left-3 z-10 flex items-center gap-1.5 rounded-full bg-background/85 px-2 py-1 backdrop-blur-md border border-border/50 shadow-xs"
+            >
+              {variantInfo.colors.slice(0, 5).map((c) => (
+                <button
+                  key={c.name}
+                  type="button"
+                  title={c.name}
+                  onClick={() => {
+                    setActiveColor(c.name);
+                    if (c.image) setActiveImg(c.image);
+                  }}
+                  style={{ backgroundColor: c.hex }}
+                  className={`h-3.5 w-3.5 rounded-full border border-black/15 transition-all ${
+                    activeColor === c.name
+                      ? "ring-2 ring-primary ring-offset-1 scale-110"
+                      : "opacity-75 hover:opacity-100 hover:scale-110"
+                  }`}
+                  aria-label={c.name}
+                />
+              ))}
+              {variantInfo.colors.length > 5 && (
+                <span className="font-mono text-[9px] text-muted-foreground ml-0.5">
+                  +{variantInfo.colors.length - 5}
+                </span>
+              )}
+            </div>
+          )}
 
           {/* Badges */}
           {onSale && (

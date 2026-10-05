@@ -34,7 +34,27 @@ function publicClient() {
 }
 
 const PRODUCT_COLS =
-  "id,name,slug,sku,brand,short_description,description,price,sale_price,stock,low_stock_threshold,images,specs,features,tags,featured,created_at,category:categories(name,slug)";
+  "id,name,slug,sku,brand,short_description,description,price,sale_price,stock,low_stock_threshold,images,specs,features,tags,featured,variants,created_at,category:categories(name,slug)";
+
+export type ProductVariantColor = {
+  name: string;
+  hex: string;
+  image?: string;
+};
+
+export type ProductVariantOption = {
+  name: string;
+  extraPrice: number;
+  stock?: number;
+  specsNote?: string;
+};
+
+export type ProductVariants = {
+  colors?: ProductVariantColor[];
+  variantType?: string; // e.g. "Size", "Wattage", "Length", "Model", "Storage"
+  sizes?: ProductVariantOption[];
+  inBox?: string[];
+};
 
 export type Product = {
   id: string;
@@ -53,6 +73,7 @@ export type Product = {
   features: string[];
   tags: string[];
   featured: boolean;
+  variants?: ProductVariants | any;
   created_at: string;
   category: { name: string; slug: string } | null;
 };

@@ -32,6 +32,8 @@ import {
   UserCheck,
   RefreshCw,
   Upload,
+  Printer,
+  MessageCircle,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import {
@@ -1119,12 +1121,21 @@ function OrderInspectionModal({
               Placed on {new Date(order.created_at).toLocaleString()}
             </p>
           </div>
-          <button
-            onClick={onClose}
-            className="press rounded-full bg-surface p-2 text-muted-foreground hover:text-foreground"
-          >
-            <X className="h-5 w-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => window.print()}
+              className="press flex items-center gap-1.5 rounded-full border border-border bg-surface px-3 py-1 font-mono text-xs font-semibold hover:bg-muted"
+            >
+              <Printer className="h-3.5 w-3.5 text-primary" /> Print Slip
+            </button>
+            <button
+              onClick={onClose}
+              className="press rounded-full bg-surface p-2 text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
         </div>
 
         <div className="mt-6 grid gap-6 md:grid-cols-2">
@@ -1161,6 +1172,55 @@ function OrderInspectionModal({
                 <strong>Customer Note:</strong> {order.notes}
               </p>
             )}
+
+            {/* Instant Pakistani WhatsApp Dispatch Templates (Phase 4) */}
+            <div className="pt-3 border-t space-y-1.5">
+              <span className="font-mono text-[10px] uppercase text-muted-foreground font-bold flex items-center gap-1">
+                <MessageCircle className="h-3 w-3 text-success" /> 1-Click WhatsApp Notification:
+              </span>
+              <div className="grid grid-cols-2 gap-1.5">
+                <a
+                  href={`https://wa.me/${order.phone.replace(/\D/g, "")}?text=${encodeURIComponent(
+                    `Hi ${order.customer_name}! Your Gubberz order #${order.code} is confirmed. Delivery to ${order.city}. Total: Rs ${formatPKR(order.total)}. We are packing your gadgets now!`,
+                  )}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="press rounded-lg bg-surface px-2.5 py-1.5 text-center text-[11px] font-semibold text-foreground hover:bg-success/15 hover:text-success border transition-colors truncate"
+                >
+                  💬 Confirmed
+                </a>
+                <a
+                  href={`https://wa.me/${order.phone.replace(/\D/g, "")}?text=${encodeURIComponent(
+                    `Hi ${order.customer_name}! Great news — your Gubberz order #${order.code} has been dispatched! Track your parcel live here: ${typeof window !== "undefined" ? window.location.origin : ""}/order?code=${order.code}&phone=${encodeURIComponent(order.phone)}`,
+                  )}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="press rounded-lg bg-surface px-2.5 py-1.5 text-center text-[11px] font-semibold text-foreground hover:bg-success/15 hover:text-success border transition-colors truncate"
+                >
+                  🚚 Dispatched
+                </a>
+                <a
+                  href={`https://wa.me/${order.phone.replace(/\D/g, "")}?text=${encodeURIComponent(
+                    `Hi ${order.customer_name}! Your Gubberz order #${order.code} is out for delivery today in ${order.city}. ${order.payment_method === "cod" ? `Please have Rs ${formatPKR(order.total)} ready for the courier rider.` : "Advance payment is already settled."} Thank you!`,
+                  )}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="press rounded-lg bg-surface px-2.5 py-1.5 text-center text-[11px] font-semibold text-foreground hover:bg-success/15 hover:text-success border transition-colors truncate"
+                >
+                  📦 Out for Delivery
+                </a>
+                <a
+                  href={`https://wa.me/${order.phone.replace(/\D/g, "")}?text=${encodeURIComponent(
+                    `Hi ${order.customer_name}! Your Gubberz order #${order.code} has been delivered. We hope you love your gadgets! If you need warranty or setup help, reply here anytime.`,
+                  )}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="press rounded-lg bg-surface px-2.5 py-1.5 text-center text-[11px] font-semibold text-foreground hover:bg-success/15 hover:text-success border transition-colors truncate"
+                >
+                  ✅ Delivered
+                </a>
+              </div>
+            </div>
           </div>
 
           {/* Payment Card & Proof Review */}
@@ -1945,26 +2005,62 @@ function ProductFormDialog({
   const [featuresText, setFeaturesText] = useState(
     Array.isArray(initial?.features) ? initial.features.join("\n") : "",
   );
-  const [specsText, setSpecsText] = useState(
-    JSON.stringify(
-      typeof initial?.specs === "object" && initial?.specs
-        ? initial.specs
-        : { Connection: "Bluetooth 5.3", Battery: "30h" },
-      null,
-      2,
-    ),
+
+  // Specifications key-value rows
+  const initialSpecsList =
+    initial?.specs && typeof initial.specs === "object"
+      ? Object.entries(initial.specs).map(([key, value]) => ({
+          key,
+          value: String(value ?? ""),
+        }))
+      : [];
+  const [specsList, setSpecsList] = useState<Array<{ key: string; value: string }>>(
+    initialSpecsList,
   );
+
+  // Product Variations (Colors & Size/Unit Dropdown)
+  const initialVariants =
+    initial?.variants && typeof initial.variants === "object" ? initial.variants : {};
+  const [variantType, setVariantType] = useState<string>(initialVariants.variantType || "Size");
+  const [colors, setColors] = useState<Array<{ name: string; hex: string; image?: string }>>(
+    Array.isArray(initialVariants.colors) ? initialVariants.colors : [],
+  );
+  const [sizes, setSizes] = useState<
+    Array<{ name: string; extraPrice: number; specsNote?: string }>
+  >(Array.isArray(initialVariants.sizes) ? initialVariants.sizes : []);
+
   const [published, setPublished] = useState(initial?.published ?? true);
   const [featured, setFeatured] = useState(initial?.featured ?? false);
 
   function handleSave() {
-    let parsedSpecs: Record<string, unknown> = {};
-    try {
-      parsedSpecs = JSON.parse(specsText);
-    } catch {
-      toast.error('Specifications must be valid JSON format (e.g. {"Battery": "40h"})');
-      return;
+    const parsedSpecs: Record<string, string> = {};
+    for (const s of specsList) {
+      if (s.key.trim()) {
+        parsedSpecs[s.key.trim()] = s.value.trim();
+      }
     }
+
+    const cleanColors = colors
+      .filter((c) => c.name.trim())
+      .map((c) => ({
+        name: c.name.trim(),
+        hex: c.hex || "#1f2123",
+        image: c.image?.trim() || undefined,
+      }));
+
+    const cleanSizes = sizes
+      .filter((s) => s.name.trim())
+      .map((s) => ({
+        name: s.name.trim(),
+        extraPrice: Number(s.extraPrice) || 0,
+        specsNote: s.specsNote?.trim() || undefined,
+      }));
+
+    const finalVariants = {
+      colors: cleanColors,
+      variantType: variantType.trim() || "Size",
+      sizes: cleanSizes,
+    };
 
     const imageToUse = customImageUrl.trim() ? customImageUrl.trim() : selectedImage;
     const features = featuresText
@@ -1987,6 +2083,7 @@ function ProductFormDialog({
       low_stock_threshold: Number(lowStockThreshold),
       images: [imageToUse],
       specs: parsedSpecs,
+      variants: finalVariants,
       features,
       published,
       featured,
@@ -2253,32 +2350,254 @@ function ProductFormDialog({
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="font-mono uppercase text-muted-foreground">
+              Key Features (1 per line)
+            </label>
+            <textarea
+              rows={3}
+              value={featuresText}
+              onChange={(e) => setFeaturesText(e.target.value)}
+              placeholder="Active noise cancelling&#10;40h battery life&#10;Fold-flat hinge"
+              className="mt-1 w-full rounded-xl bg-surface p-3 font-mono text-xs outline-none ring-primary focus:ring-2"
+            />
+          </div>
+
+          {/* ========================================================= */}
+          {/* PRODUCT VARIATIONS: ON TOP OF SPECIFICATIONS              */}
+          {/* ========================================================= */}
+          <div className="rounded-2xl border border-border/80 bg-surface/30 p-4 space-y-4">
+            {/* 1. Color Swatches */}
             <div>
-              <label className="font-mono uppercase text-muted-foreground">
-                Key Features (1 per line)
-              </label>
-              <textarea
-                rows={4}
-                value={featuresText}
-                onChange={(e) => setFeaturesText(e.target.value)}
-                placeholder="Active noise cancelling&#10;40h battery life&#10;Fold-flat hinge"
-                className="mt-1 w-full rounded-xl bg-surface p-3 font-mono text-xs outline-none ring-primary focus:ring-2"
-              />
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="font-bold text-xs uppercase tracking-wider text-foreground">
+                    Color Variants (Buttons in Image Box)
+                  </h4>
+                  <p className="text-[11px] text-muted-foreground">
+                    Interactive swatches (Torras & Apple style) that switch the product photo.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setColors([...colors, { name: "", hex: "#1f2123", image: "" }])}
+                  className="press text-xs font-bold text-primary flex items-center gap-1 hover:underline"
+                >
+                  <Plus className="h-3.5 w-3.5" /> Add Color
+                </button>
+              </div>
+
+              {colors.length === 0 ? (
+                <p className="mt-2 text-[11px] text-muted-foreground italic">
+                  No color variants added. Leave empty for standard single edition.
+                </p>
+              ) : (
+                <div className="mt-2 space-y-2">
+                  {colors.map((c, idx) => (
+                    <div
+                      key={idx}
+                      className="flex flex-wrap items-center gap-2 rounded-xl bg-surface p-2 border border-border/40"
+                    >
+                      <div className="flex items-center gap-2 shrink-0">
+                        <input
+                          type="color"
+                          value={c.hex}
+                          onChange={(e) => {
+                            const copy = [...colors];
+                            copy[idx].hex = e.target.value;
+                            setColors(copy);
+                          }}
+                          className="h-8 w-8 rounded-full border border-black/20 cursor-pointer overflow-hidden p-0"
+                          title="Pick color"
+                        />
+                        <input
+                          value={c.name}
+                          onChange={(e) => {
+                            const copy = [...colors];
+                            copy[idx].name = e.target.value;
+                            setColors(copy);
+                          }}
+                          placeholder="Color Name (e.g. Matte Black)"
+                          className="h-8 w-36 rounded-lg bg-background px-2.5 text-xs outline-none ring-primary focus:ring-2 font-medium"
+                        />
+                      </div>
+                      <input
+                        value={c.image || ""}
+                        onChange={(e) => {
+                          const copy = [...colors];
+                          copy[idx].image = e.target.value;
+                          setColors(copy);
+                        }}
+                        placeholder="Specific Image URL for this color (optional)"
+                        className="h-8 flex-1 min-w-[140px] rounded-lg bg-background px-2.5 text-xs font-mono outline-none ring-primary focus:ring-2"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setColors(colors.filter((_, i) => i !== idx))}
+                        className="press text-muted-foreground hover:text-destructive p-1"
+                        title="Remove Color"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
-            <div>
-              <label className="font-mono uppercase text-muted-foreground">
-                Specifications (JSON Object)
-              </label>
-              <textarea
-                rows={4}
-                value={specsText}
-                onChange={(e) => setSpecsText(e.target.value)}
-                placeholder='{"Battery": "40h", "Connection": "Bluetooth 5.3"}'
-                className="mt-1 w-full rounded-xl bg-surface p-3 font-mono text-xs outline-none ring-primary focus:ring-2"
-              />
+            {/* 2. Size / Unit Dropdown */}
+            <div className="pt-3 border-t">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h4 className="font-bold text-xs uppercase tracking-wider text-foreground">
+                    Size / Unit Variant (Dropdown Selector)
+                  </h4>
+                  <p className="text-[11px] text-muted-foreground">
+                    Customer selects from a dropdown (e.g. S / M / L, 65W / 100W, 1m / 2m).
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    value={variantType}
+                    onChange={(e) => setVariantType(e.target.value)}
+                    placeholder="Label (e.g. Size, Model, Length)"
+                    className="h-7 w-28 rounded-lg bg-surface px-2 text-xs font-mono font-medium outline-none ring-primary focus:ring-1"
+                    title="Variant property label"
+                  />
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSizes([...sizes, { name: "", extraPrice: 0, specsNote: "" }])
+                    }
+                    className="press text-xs font-bold text-primary flex items-center gap-1 hover:underline"
+                  >
+                    <Plus className="h-3.5 w-3.5" /> Add Option
+                  </button>
+                </div>
+              </div>
+
+              {sizes.length === 0 ? (
+                <p className="mt-2 text-[11px] text-muted-foreground italic">
+                  No size or unit variants added. Standard pricing applies.
+                </p>
+              ) : (
+                <div className="mt-2 space-y-2">
+                  {sizes.map((s, idx) => (
+                    <div
+                      key={idx}
+                      className="flex flex-wrap items-center gap-2 rounded-xl bg-surface p-2 border border-border/40"
+                    >
+                      <input
+                        value={s.name}
+                        onChange={(e) => {
+                          const copy = [...sizes];
+                          copy[idx].name = e.target.value;
+                          setSizes(copy);
+                        }}
+                        placeholder="Option (e.g. Medium (M), 100W, 2m)"
+                        className="h-8 flex-1 min-w-[120px] rounded-lg bg-background px-2.5 text-xs outline-none ring-primary focus:ring-2 font-medium"
+                      />
+                      <div className="flex items-center gap-1 shrink-0">
+                        <span className="text-[11px] font-mono text-muted-foreground">+PKR:</span>
+                        <input
+                          type="number"
+                          value={s.extraPrice}
+                          onChange={(e) => {
+                            const copy = [...sizes];
+                            copy[idx].extraPrice = Number(e.target.value);
+                            setSizes(copy);
+                          }}
+                          placeholder="Extra Price"
+                          className="h-8 w-20 rounded-lg bg-background px-2 text-xs font-mono outline-none ring-primary focus:ring-2"
+                        />
+                      </div>
+                      <input
+                        value={s.specsNote || ""}
+                        onChange={(e) => {
+                          const copy = [...sizes];
+                          copy[idx].specsNote = e.target.value;
+                          setSizes(copy);
+                        }}
+                        placeholder="Variant note (e.g. 50W output)"
+                        className="h-8 flex-1 min-w-[120px] rounded-lg bg-background px-2.5 text-xs outline-none ring-primary focus:ring-2"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setSizes(sizes.filter((_, i) => i !== idx))}
+                        className="press text-muted-foreground hover:text-destructive p-1"
+                        title="Remove Option"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
+          </div>
+
+          {/* ========================================================= */}
+          {/* SPECIFICATIONS: 2 FIELDS IN A ROW, CAN BE LEFT EMPTY     */}
+          {/* ========================================================= */}
+          <div className="space-y-3 pt-2">
+            <div className="flex items-center justify-between">
+              <div>
+                <label className="font-mono uppercase text-muted-foreground text-xs font-bold">
+                  Specifications (Optional)
+                </label>
+                <p className="text-[11px] text-muted-foreground">
+                  Can be left empty. Enter property name (e.g. Watts) and value (e.g. 50).
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSpecsList([...specsList, { key: "", value: "" }])}
+                className="press text-xs font-bold text-primary flex items-center gap-1 hover:underline"
+              >
+                <Plus className="h-3.5 w-3.5" /> Add specification
+              </button>
+            </div>
+
+            {specsList.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-border/70 p-3 text-center text-[11px] text-muted-foreground">
+                No specifications added yet. Click &quot;+ Add specification&quot; to add technical specs like Watts, Battery, or Weight.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {specsList.map((spec, idx) => (
+                  <div key={idx} className="flex items-center gap-2">
+                    <input
+                      value={spec.key}
+                      onChange={(e) => {
+                        const copy = [...specsList];
+                        copy[idx].key = e.target.value;
+                        setSpecsList(copy);
+                      }}
+                      placeholder="Property (e.g. Watts, Battery, Output)"
+                      className="h-9 flex-1 rounded-xl bg-surface px-3 text-xs outline-none ring-primary focus:ring-2 font-medium"
+                    />
+                    <input
+                      value={spec.value}
+                      onChange={(e) => {
+                        const copy = [...specsList];
+                        copy[idx].value = e.target.value;
+                        setSpecsList(copy);
+                      }}
+                      placeholder="Value (e.g. 50, 40 hours, 65W GaN)"
+                      className="h-9 flex-1 rounded-xl bg-surface px-3 text-xs outline-none ring-primary focus:ring-2"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setSpecsList(specsList.filter((_, i) => i !== idx))}
+                      className="press h-8 w-8 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                      title="Remove Specification"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="flex flex-wrap items-center gap-6 pt-2 border-t">
@@ -2343,6 +2662,9 @@ function InventoryManager({
   onAdjustStock: (productId: string, delta: number, reason: string) => void;
 }) {
   const [filter, setFilter] = useState<"all" | "low" | "out">("all");
+  const lowStockItems = products.filter((p) => p.stock <= (p.low_stock_threshold ?? 3));
+  const outOfStockItems = products.filter((p) => p.stock <= 0);
+
   const filtered = products.filter((p) => {
     if (filter === "low") return p.stock <= (p.low_stock_threshold ?? 3);
     if (filter === "out") return p.stock <= 0;
@@ -2358,6 +2680,32 @@ function InventoryManager({
           adjustments.
         </p>
       </div>
+
+      {/* Low Stock Urgency Banner (Phase 4) */}
+      {lowStockItems.length > 0 && (
+        <div className="rounded-3xl bg-amber-500/10 border border-amber-500/25 p-5 flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-amber-500/20 text-amber-700">
+              <AlertTriangle className="h-5 w-5" />
+            </div>
+            <div>
+              <h4 className="font-bold text-sm text-amber-900 dark:text-amber-200">
+                Low Stock Urgency Alert ({lowStockItems.length} items low or out of stock)
+              </h4>
+              <p className="text-xs text-amber-800/80 dark:text-amber-300/80 mt-0.5">
+                {outOfStockItems.length} products are currently sold out. Replenish units now to prevent lost sales.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setFilter("low")}
+            className="press rounded-full bg-amber-600 px-4 py-2 font-mono text-xs font-bold text-white shadow-sm hover:bg-amber-700"
+          >
+            Review Low Stock Items →
+          </button>
+        </div>
+      )}
 
       {/* Stock Overview */}
       <div className="space-y-4">
@@ -2378,8 +2726,7 @@ function InventoryManager({
                 filter === "low" ? "bg-ink text-ink-foreground font-bold" : "text-muted-foreground"
               }`}
             >
-              Low Stock Alerts (
-              {products.filter((p) => p.stock <= (p.low_stock_threshold ?? 3)).length})
+              Low Stock Alerts ({lowStockItems.length})
             </button>
             <button
               onClick={() => setFilter("out")}
@@ -2387,7 +2734,7 @@ function InventoryManager({
                 filter === "out" ? "bg-ink text-ink-foreground font-bold" : "text-muted-foreground"
               }`}
             >
-              Out of Stock ({products.filter((p) => p.stock <= 0).length})
+              Out of Stock ({outOfStockItems.length})
             </button>
           </div>
         </div>
@@ -2401,7 +2748,7 @@ function InventoryManager({
                 <th className="px-6 py-3.5">Current Stock</th>
                 <th className="px-6 py-3.5">Threshold</th>
                 <th className="px-6 py-3.5">Status</th>
-                <th className="px-6 py-3.5 text-right">Adjustment</th>
+                <th className="px-6 py-3.5 text-right">Quick Restock / Adjust</th>
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -2445,10 +2792,36 @@ function InventoryManager({
                     </span>
                   </td>
                   <td className="px-6 py-3.5 text-right">
-                    <AdjustStockDialog
-                      product={product}
-                      onAdjust={(delta, reason) => onAdjustStock(product.id, delta, reason)}
-                    />
+                    <div className="flex items-center justify-end gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => onAdjustStock(product.id, 5, "Quick restock +5")}
+                        className="press rounded-md bg-surface px-2 py-0.5 font-mono text-[10px] font-bold text-foreground hover:bg-primary hover:text-primary-foreground border"
+                        title="Quick add +5 units"
+                      >
+                        +5
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onAdjustStock(product.id, 10, "Quick restock +10")}
+                        className="press rounded-md bg-surface px-2 py-0.5 font-mono text-[10px] font-bold text-foreground hover:bg-primary hover:text-primary-foreground border"
+                        title="Quick add +10 units"
+                      >
+                        +10
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onAdjustStock(product.id, 25, "Quick restock +25")}
+                        className="press rounded-md bg-surface px-2 py-0.5 font-mono text-[10px] font-bold text-foreground hover:bg-primary hover:text-primary-foreground border hidden sm:inline-block"
+                        title="Quick add +25 units"
+                      >
+                        +25
+                      </button>
+                      <AdjustStockDialog
+                        product={product}
+                        onAdjust={(delta, reason) => onAdjustStock(product.id, delta, reason)}
+                      />
+                    </div>
                   </td>
                 </tr>
               ))}

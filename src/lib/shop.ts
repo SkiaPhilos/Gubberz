@@ -105,8 +105,9 @@ export function productGallery(p: Product): { src: string; label: string }[] {
 }
 
 export type ProductVariantInfo = {
-  colors: { name: string; hex: string }[];
-  sizes: { name: string; extraPrice?: number }[];
+  colors: { name: string; hex: string; image?: string }[];
+  variantType?: string;
+  sizes: { name: string; extraPrice?: number; stock?: number; specsNote?: string }[];
   inBox: string[];
 };
 
@@ -236,6 +237,23 @@ export const PRODUCT_VARIANTS: Record<string, ProductVariantInfo> = {
 };
 
 export function getProductVariants(p: Product): ProductVariantInfo {
+  if (p.variants && typeof p.variants === "object") {
+    const v = p.variants as any;
+    const colors = Array.isArray(v.colors) && v.colors.length > 0 ? v.colors : [];
+    const sizes = Array.isArray(v.sizes) && v.sizes.length > 0 ? v.sizes : [];
+    if (colors.length > 0 || sizes.length > 0) {
+      return {
+        colors: colors.length > 0 ? colors : [{ name: "Standard", hex: "#1f2123" }],
+        variantType: typeof v.variantType === "string" && v.variantType ? v.variantType : "Size / Option",
+        sizes: sizes.length > 0 ? sizes : [{ name: "Standard", extraPrice: 0 }],
+        inBox:
+          Array.isArray(v.inBox) && v.inBox.length > 0
+            ? v.inBox
+            : [`${p.name}`, "Official Packaging", "Warranty Card"],
+      };
+    }
+  }
+
   if (PRODUCT_VARIANTS[p.slug]) {
     return PRODUCT_VARIANTS[p.slug];
   }
@@ -244,6 +262,7 @@ export function getProductVariants(p: Product): ProductVariantInfo {
       { name: "Standard Edition", hex: "#222222" },
       { name: "Minimal White", hex: "#f4f4f5" },
     ],
+    variantType: "Size / Option",
     sizes: [{ name: "Standard", extraPrice: 0 }],
     inBox: [`${p.name}`, "USB-C Cable", "Official Warranty Card"],
   };
