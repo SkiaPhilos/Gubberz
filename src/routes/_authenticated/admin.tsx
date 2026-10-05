@@ -51,6 +51,7 @@ import {
   saveStoreSetting,
   toggleCategoryPublished,
   toggleProductField,
+  uploadProductImage,
 } from "@/lib/admin.functions";
 import { formatPKR, imageSrc } from "@/lib/shop";
 
@@ -1910,52 +1911,36 @@ function ProductFormDialog({
     }
 
     setIsUploading(true);
-    try {
-      const ext =
-        file.name
-          .split(".")
-          .pop()
-          ?.toLowerCase()
-          .replace(/[^a-z0-9]/g, "") || "jpg";
-      const filePath = `products/${Date.now()}-${crypto.randomUUID().slice(0, 8)}.${ext}`;
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const resultStr = reader.result as string;
+        const base64 = resultStr.includes(",") ? resultStr.split(",")[1] : resultStr;
+        const res = await uploadProductImage({
+          data: {
+            fileName: file.name,
+            contentType: file.type || "image/jpeg",
+            base64Data: base64,
+          },
+        });
 
-      const primaryBucket = import.meta.env.VITE_SUPABASE_STORAGE_BUCKET || "product-images";
-      let uploadResult = await supabase.storage
-        .from(primaryBucket)
-        .upload(filePath, file, { contentType: file.type, upsert: true });
-
-      let targetBucket = primaryBucket;
-      if (
-        uploadResult.error &&
-        uploadResult.error.message?.toLowerCase().includes("bucket not found") &&
-        primaryBucket !== "products"
-      ) {
-        const fallbackResult = await supabase.storage
-          .from("products")
-          .upload(filePath, file, { contentType: file.type, upsert: true });
-        if (!fallbackResult.error) {
-          uploadResult = fallbackResult;
-          targetBucket = "products";
-        }
+        setCustomImageUrl(res.publicUrl);
+        setSelectedImage("");
+        toast.success("Image uploaded to Supabase Storage!");
+      } catch (err: any) {
+        console.error("Storage upload failed:", err);
+        toast.error(err.message || "Failed to upload to Supabase Storage");
+      } finally {
+        setIsUploading(false);
+        e.target.value = "";
       }
-
-      if (uploadResult.error) {
-        throw uploadResult.error;
-      }
-
-      const { data } = supabase.storage.from(targetBucket).getPublicUrl(filePath);
-      if (!data?.publicUrl) throw new Error("Could not get public URL from storage");
-
-      setCustomImageUrl(data.publicUrl);
-      setSelectedImage("");
-      toast.success("Image uploaded to Supabase Storage!");
-    } catch (err: any) {
-      console.error("Storage upload failed:", err);
-      toast.error(err.message || "Failed to upload to Supabase Storage");
-    } finally {
+    };
+    reader.onerror = () => {
+      toast.error("Failed to read image file");
       setIsUploading(false);
       e.target.value = "";
-    }
+    };
+    reader.readAsDataURL(file);
   }
   const [featuresText, setFeaturesText] = useState(
     Array.isArray(initial?.features) ? initial.features.join("\n") : "",

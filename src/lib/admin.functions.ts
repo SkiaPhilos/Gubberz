@@ -596,3 +596,40 @@ export const updateProductSpecs = createServerFn({ method: "POST" })
     if (error) throw new Error(error.message);
     return { ok: true };
   });
+
+export const uploadProductImage = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) =>
+    z
+      .object({
+        fileName: z.string().min(1),
+        contentType: z.string().min(1),
+        base64Data: z.string().min(1),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data, context }) => {
+    const db = await getAdminDbClient(context);
+    const buffer = Buffer.from(data.base64Data, "base64");
+    const ext =
+      data.fileName
+        .split(".")
+        .pop()
+        ?.toLowerCase()
+        .replace(/[^a-z0-9]/g, "") || "jpg";
+    const filePath = `products/${Date.now()}-${crypto.randomUUID().slice(0, 8)}.${ext}`;
+
+    const { error: uploadErr } = await db.storage
+      .from("product-images")
+      .upload(filePath, buffer, {
+        contentType: data.contentType,
+        upsert: true,
+      });
+
+    if (uploadErr) {
+      throw new Error(`Storage upload failed: ${uploadErr.message}`);
+    }
+
+    const { data: pubUrl } = db.storage.from("product-images").getPublicUrl(filePath);
+    return { publicUrl: pubUrl.publicUrl };
+  });
