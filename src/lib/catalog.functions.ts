@@ -399,6 +399,69 @@ const DEFAULT_ACCOUNTS: PaymentAccount[] = [
   },
 ];
 
+export type PromoCoupon = {
+  code: string;
+  discountPercent: number;
+  minOrderAmount?: number;
+  maxUses?: number;
+  usedCount: number;
+  active: boolean;
+  description?: string;
+};
+
+export const DEFAULT_COUPONS: PromoCoupon[] = [
+  {
+    code: "GUBBEROO5",
+    discountPercent: 5,
+    minOrderAmount: 2000,
+    usedCount: 14,
+    active: true,
+    description: "5% off anywhere in Pakistan courtesy of Gubberoo",
+  },
+  {
+    code: "MIDNIGHT10",
+    discountPercent: 10,
+    minOrderAmount: 5000,
+    usedCount: 38,
+    active: true,
+    description: "10% off during Flash Drops & Midnight Sales",
+  },
+  {
+    code: "WELCOME10",
+    discountPercent: 10,
+    minOrderAmount: 3000,
+    usedCount: 82,
+    active: true,
+    description: "10% off for first-time Pakistani buyers",
+  },
+  {
+    code: "TECHDROP",
+    discountPercent: 15,
+    minOrderAmount: 10000,
+    usedCount: 21,
+    active: true,
+    description: "15% VIP drop discount on big desk setups",
+  },
+];
+
+export type FlashSaleConfig = {
+  active: boolean;
+  title: string;
+  bannerText: string;
+  targetDate: string;
+  discountPercent: number;
+  promoCode: string;
+};
+
+export const DEFAULT_FLASH_SALE: FlashSaleConfig = {
+  active: true,
+  title: "Midnight Drop",
+  bannerText: "⚡ MIDNIGHT DROP · EXTRA 10% OFF WITH CODE MIDNIGHT10 · NATIONWIDE EXPRESS DISPATCH",
+  targetDate: new Date(Date.now() + 6 * 3600 * 1000 + 42 * 60 * 1000).toISOString(),
+  discountPercent: 10,
+  promoCode: "MIDNIGHT10",
+};
+
 export const getStoreSettings = createServerFn({ method: "GET" }).handler(async () => {
   try {
     const { data } = await publicClient().from("store_settings").select("key,value");
@@ -419,12 +482,24 @@ export const getStoreSettings = createServerFn({ method: "GET" }).handler(async 
       }
     }
 
+    const coupons =
+      Array.isArray(map["coupons"]) && (map["coupons"] as any[]).length > 0
+        ? (map["coupons"] as PromoCoupon[])
+        : DEFAULT_COUPONS;
+
+    const flashSale =
+      map["flash_sale"] && typeof map["flash_sale"] === "object"
+        ? (map["flash_sale"] as FlashSaleConfig)
+        : DEFAULT_FLASH_SALE;
+
     return {
       whatsapp: String(map["whatsapp_number"] ?? "923274393495"),
       email: String(map["contact_email"] ?? "maniacphilos@gmail.com"),
       advanceDiscount: Number(map["advance_payment_discount_percent"] ?? 5),
       deliveryFee: Number(map["delivery_fee"] ?? 250),
       accounts: mergedAccounts.filter((a) => a.enabled),
+      coupons,
+      flashSale,
     };
   } catch (err) {
     console.warn("Could not load store settings from database, using defaults:", err);
@@ -434,6 +509,8 @@ export const getStoreSettings = createServerFn({ method: "GET" }).handler(async 
       advanceDiscount: 5,
       deliveryFee: 250,
       accounts: DEFAULT_ACCOUNTS.filter((a) => a.enabled),
+      coupons: DEFAULT_COUPONS,
+      flashSale: DEFAULT_FLASH_SALE,
     };
   }
 });

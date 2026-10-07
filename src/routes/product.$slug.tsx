@@ -32,6 +32,9 @@ import {
 import { flyToCart, useCart } from "@/lib/cart";
 import { useWishlist, useRecentlyViewed } from "@/lib/discovery";
 import { ProductCard } from "@/components/shop/ProductCard";
+import setupKarachi from "@/assets/images/setup_karachi_desk_1791208163986.jpg";
+import setupIsb from "@/assets/images/setup_isb_desk_1791208181214.jpg";
+import setupLhr from "@/assets/images/setup_lhr_desk_1791208199098.jpg";
 
 export const Route = createFileRoute("/product/$slug")({
   loader: async ({ context, params }) => {
@@ -72,6 +75,7 @@ type Review = {
   title: string;
   comment: string;
   verified: boolean;
+  setupPhoto?: string;
 };
 
 const INITIAL_REVIEWS: Record<string, Review[]> = {
@@ -85,6 +89,7 @@ const INITIAL_REVIEWS: Record<string, Review[]> = {
       title: "Phenomenal build quality",
       comment: "Honestly shocked at how good this feels. Zero plastic creak and sound is punchy and detailed. Arrived next day.",
       verified: true,
+      setupPhoto: setupKarachi,
     },
     {
       id: "r2",
@@ -95,6 +100,7 @@ const INITIAL_REVIEWS: Record<string, Review[]> = {
       title: "Worth every rupee",
       comment: "Saved 5% paying via JazzCash in advance. Received tracking number on WhatsApp in under an hour. 10/10 service.",
       verified: true,
+      setupPhoto: setupLhr,
     },
     {
       id: "r3",
@@ -105,6 +111,7 @@ const INITIAL_REVIEWS: Record<string, Review[]> = {
       title: "Super aesthetic and reliable",
       comment: "Looks straight out of an editorial design catalogue. Battery life has easily lasted me three straight workdays.",
       verified: true,
+      setupPhoto: setupIsb,
     },
     {
       id: "r4",
@@ -115,6 +122,7 @@ const INITIAL_REVIEWS: Record<string, Review[]> = {
       title: "Great everyday gear",
       comment: "Clean minimalist packaging with all required cables. Pairing with my laptop and phone was instant.",
       verified: true,
+      setupPhoto: setupIsb,
     },
   ],
 };
@@ -567,6 +575,27 @@ function ProductPage() {
 
           {/* BUY BOX & ADD TO BAG */}
           <div ref={buyBoxRef} className="space-y-4">
+            {/* LOW STOCK URGENCY PROGRESS BAR */}
+            {p.stock > 0 && p.stock <= (p.low_stock_threshold || 10) && (
+              <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-3.5 space-y-1.5">
+                <div className="flex items-center justify-between text-xs font-mono font-bold text-amber-600 dark:text-amber-400">
+                  <span className="flex items-center gap-1.5">
+                    <Flame className="h-4 w-4 fill-current animate-pulse text-amber-500" />
+                    Only {p.stock} units left in stock!
+                  </span>
+                  <span className="text-[10px] uppercase tracking-wider font-extrabold">Selling Fast</span>
+                </div>
+                <div className="h-2 w-full bg-background/80 rounded-full overflow-hidden border border-amber-500/20">
+                  <div
+                    className="h-full bg-gradient-to-r from-amber-500 via-orange-500 to-amber-400 rounded-full transition-all duration-500"
+                    style={{
+                      width: `${Math.max(15, Math.min(100, (p.stock / 15) * 100))}%`,
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+
             {avail.tone !== "out" ? (
               <div className="space-y-3">
                 <div className="flex flex-col gap-3 sm:flex-row">
@@ -981,6 +1010,20 @@ function ProductPage() {
               </div>
               <h4 className="font-bold text-base">{r.title}</h4>
               <p className="text-sm text-muted-foreground leading-relaxed">{r.comment}</p>
+
+              {r.setupPhoto && (
+                <div className="relative aspect-[16/10] w-full overflow-hidden rounded-2xl bg-surface border border-border/70 mt-2">
+                  <img
+                    src={r.setupPhoto}
+                    alt={`${r.author}'s desk setup`}
+                    className="h-full w-full object-cover transition-transform duration-300 hover:scale-105"
+                  />
+                  <div className="absolute bottom-2 left-2 rounded-full bg-background/90 backdrop-blur-md px-2.5 py-1 text-[10px] font-mono font-bold text-foreground border border-border/60">
+                    📸 Customer Desk Setup · {r.city}
+                  </div>
+                </div>
+              )}
+
               <div className="flex items-center justify-between border-t border-border/40 pt-3 text-xs">
                 <span className="font-bold">
                   {r.author} · <span className="text-muted-foreground font-normal">{r.city}</span>

@@ -19,6 +19,86 @@ import basket from "@/assets/characters/basket.png";
 
 export { WishlistDrawer } from "./WishlistDrawer";
 
+function MidnightSaleBanner() {
+  const { data: settings } = useQuery(settingsQuery);
+  const flash = settings?.flashSale;
+  const [timeLeft, setTimeLeft] = useState({ hours: 4, minutes: 28, seconds: 15 });
+  const [dismissed, setDismissed] = useState(false);
+
+  useEffect(() => {
+    if (!flash?.targetDate) return;
+    const updateCountdown = () => {
+      const diff = new Date(flash.targetDate).getTime() - Date.now();
+      if (diff <= 0) {
+        setTimeLeft({ hours: 0, minutes: 0, seconds: 0 });
+        return;
+      }
+      const hours = Math.floor(diff / (1000 * 60 * 60));
+      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+      const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+      setTimeLeft({ hours, minutes, seconds });
+    };
+    updateCountdown();
+    const timer = setInterval(updateCountdown, 1000);
+    return () => clearInterval(timer);
+  }, [flash?.targetDate]);
+
+  if (!flash?.active || dismissed) return null;
+
+  const copyCode = (code: string) => {
+    navigator.clipboard.writeText(code);
+    toast.success(`Coupon code "${code}" copied to clipboard!`);
+  };
+
+  const pad = (n: number) => String(n).padStart(2, "0");
+
+  return (
+    <div className="bg-gradient-to-r from-zinc-950 via-zinc-900 to-zinc-950 text-white border-b border-amber-500/30 px-4 py-2 text-xs relative overflow-hidden">
+      <div className="mx-auto max-w-7xl flex flex-wrap items-center justify-between gap-2.5">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="flex items-center gap-1 rounded-full bg-amber-500/20 border border-amber-500/40 px-2.5 py-0.5 text-[10px] font-mono font-bold text-amber-400 uppercase tracking-wider animate-pulse">
+            ⚡ Flash Drop
+          </span>
+          <span className="font-bold text-zinc-100 truncate text-xs sm:text-sm">
+            {flash.bannerText || "Extra 10% Off With Code MIDNIGHT10"}
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2.5 shrink-0 ml-auto sm:ml-0">
+          {/* Ticking Countdown Clock */}
+          <div className="flex items-center gap-1 font-mono text-[11px] bg-black/60 px-2.5 py-1 rounded-lg border border-amber-500/30 text-amber-400 font-bold">
+            <span className="text-zinc-400 uppercase text-[9px] mr-1">Ends in:</span>
+            <span>{pad(timeLeft.hours)}h</span>
+            <span>:</span>
+            <span>{pad(timeLeft.minutes)}m</span>
+            <span>:</span>
+            <span className="text-amber-300">{pad(timeLeft.seconds)}s</span>
+          </div>
+
+          {/* Copy Promo Code Button */}
+          {flash.promoCode && (
+            <button
+              onClick={() => copyCode(flash.promoCode)}
+              className="press flex items-center gap-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-zinc-950 px-2.5 py-1 font-mono font-bold text-[10px] transition-colors cursor-pointer"
+              title="Click to copy coupon code"
+            >
+              <span>Code: {flash.promoCode}</span>
+            </button>
+          )}
+
+          <button
+            onClick={() => setDismissed(true)}
+            className="text-zinc-500 hover:text-zinc-300 p-0.5 cursor-pointer"
+            aria-label="Dismiss banner"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function SiteHeader() {
   const cart = useCart();
   const wishlist = useWishlist();
@@ -67,8 +147,10 @@ export function SiteHeader() {
   }, [cart.bump]);
 
   return (
-    <header className="sticky top-0 z-40 border-b bg-background/85 backdrop-blur-md">
-      <div className="mx-auto flex h-16 max-w-7xl items-center gap-4 px-5 md:px-8">
+    <>
+      <MidnightSaleBanner />
+      <header className="sticky top-0 z-40 border-b bg-background/85 backdrop-blur-md">
+        <div className="mx-auto flex h-16 max-w-7xl items-center gap-4 px-5 md:px-8">
         <Link
           to="/"
           className="group flex items-baseline gap-0.5 text-2xl font-extrabold tracking-tight"
@@ -412,11 +494,13 @@ export function SiteHeader() {
         )}
       </AnimatePresence>
     </header>
+    </>
   );
 }
 
 export function CartDrawer() {
   const cart = useCart();
+  const { data: settings } = useQuery(settingsQuery);
   const [promoInput, setPromoInput] = useState("");
   const [appliedPromo, setAppliedPromo] = useState<{ code: string; pct: number } | null>(null);
   const [promoError, setPromoError] = useState("");
@@ -429,23 +513,45 @@ export function CartDrawer() {
   const applyPromo = (e: React.FormEvent) => {
     e.preventDefault();
     const code = promoInput.trim().toUpperCase();
-    if (code === "WELCOME10" || code === "GUBBERZ10") {
-      setAppliedPromo({ code, pct: 10 });
+    if (!code) return;
+
+    // Check against live database coupons + fallback defaults
+    const availableCoupons = settings?.coupons || [];
+    const matched = availableCoupons.find(
+      (c: any) => c.code.toUpperCase() === code && c.active !== false,
+    );
+
+    if (matched) {
+      if (matched.minOrderAmount && cart.subtotal < matched.minOrderAmount) {
+        setPromoError(`Requires minimum order of ${formatPKR(matched.minOrderAmount)}`);
+        return;
+      }
+      setAppliedPromo({ code, pct: matched.discountPercent });
       setPromoError("");
-      toast.success(`Coupon ${code} applied: 10% discount!`);
+      toast.success(`Coupon ${code} applied: ${matched.discountPercent}% discount!`);
+      setPromoInput("");
+    } else if (code === "GUBBEROO5" || code === "GUB5") {
+      setAppliedPromo({ code: "GUBBEROO5", pct: 5 });
+      setPromoError("");
+      toast.success(`Gubberoo VIP Coupon applied: 5% discount!`);
+      setPromoInput("");
+    } else if (code === "MIDNIGHT10") {
+      setAppliedPromo({ code: "MIDNIGHT10", pct: 10 });
+      setPromoError("");
+      toast.success(`Midnight Drop Coupon applied: 10% discount!`);
+      setPromoInput("");
+    } else if (code === "WELCOME10" || code === "GUBBERZ10") {
+      setAppliedPromo({ code: "WELCOME10", pct: 10 });
+      setPromoError("");
+      toast.success(`Welcome Coupon applied: 10% discount!`);
       setPromoInput("");
     } else if (code === "TECHDROP") {
-      setAppliedPromo({ code, pct: 15 });
+      setAppliedPromo({ code: "TECHDROP", pct: 15 });
       setPromoError("");
-      toast.success(`Coupon ${code} applied: 15% discount!`);
-      setPromoInput("");
-    } else if (code === "GUB5") {
-      setAppliedPromo({ code, pct: 5 });
-      setPromoError("");
-      toast.success(`Coupon ${code} applied: 5% discount!`);
+      toast.success(`TechDrop Coupon applied: 15% discount!`);
       setPromoInput("");
     } else {
-      setPromoError("Invalid code. Try WELCOME10 or TECHDROP");
+      setPromoError("Invalid coupon code. Try GUBBEROO5 or MIDNIGHT10");
     }
   };
 

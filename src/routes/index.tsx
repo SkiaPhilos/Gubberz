@@ -2,9 +2,11 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useSuspenseQuery, queryOptions } from "@tanstack/react-query";
 import { motion, useReducedMotion, useScroll, useTransform } from "motion/react";
 import { useEffect, useRef, useState } from "react";
+import { Star, MapPin, Check, Truck, ShieldCheck, ArrowRight } from "lucide-react";
 import { ProductCard } from "@/components/shop/ProductCard";
 import { getHomeSections, type HomeSection } from "@/lib/content.functions";
 import { categoriesQuery, effectivePrice, formatPKR, imageSrc, productsQuery } from "@/lib/shop";
+import { FEATURED_PAKISTANI_REVIEWS } from "@/lib/reviews";
 import sitter from "@/assets/characters/sitter.png";
 
 const sectionsQuery = queryOptions({
@@ -45,8 +47,14 @@ function Home() {
   const { data: sections } = useSuspenseQuery(sectionsQuery);
   return (
     <div className="overflow-hidden">
-      {sections.map((section) => (
-        <Section key={section.id} section={section} products={products} categories={categories} />
+      {sections.map((section, idx) => (
+        <div key={section.id}>
+          <Section section={section} products={products} categories={categories} />
+          {/* Inject Verified Pakistani Customer Setup Showcase after category index */}
+          {section.section_type === "category_index" && (
+            <PakistaniCustomerShowcase />
+          )}
+        </div>
       ))}
     </div>
   );
@@ -331,5 +339,120 @@ function SectionHeading({ section, light = false }: { section: HomeSection; ligh
         <p className={light ? "opacity-80" : "text-muted-foreground"}>{section.body}</p>
       )}
     </div>
+  );
+}
+
+function PakistaniCustomerShowcase() {
+  return (
+    <section className="mx-auto mt-20 max-w-7xl px-5 md:mt-32 md:px-8">
+      <div className="border-t border-border/80 pt-12 md:pt-16">
+        <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
+          <div>
+            <div className="inline-flex items-center gap-2 rounded-full bg-primary/10 border border-primary/20 px-3 py-1 text-xs font-mono font-bold uppercase tracking-wider text-primary">
+              <span className="h-2 w-2 rounded-full bg-primary animate-pulse" />
+              Pakistani Buyer Setups
+            </div>
+            <h2 className="mt-4 text-3xl font-extrabold tracking-tight md:text-5xl">
+              Real desks. Real cities. Zero filter.
+            </h2>
+            <p className="mt-2.5 max-w-2xl text-sm md:text-base text-muted-foreground leading-relaxed">
+              Customer desk photos and verified buyer feedback sent in from Karachi, Lahore, Islamabad, and Rawalpindi.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <span className="font-mono text-xs text-muted-foreground">
+              Average <strong>4.9 / 5.0</strong> rating across Pakistan
+            </span>
+          </div>
+        </div>
+
+        {/* SETUP REVIEWS GRID */}
+        <div className="mt-10 grid gap-6 md:grid-cols-3">
+          {FEATURED_PAKISTANI_REVIEWS.map((review) => (
+            <div
+              key={review.id}
+              className="group flex flex-col justify-between rounded-3xl border border-border/80 bg-card overflow-hidden shadow-xs transition-all hover:border-primary/50 hover:shadow-md"
+            >
+              <div>
+                {/* Photo with Tag */}
+                <div className="relative aspect-[4/3] w-full overflow-hidden bg-surface">
+                  <img
+                    src={review.photo}
+                    alt={review.title}
+                    className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                  />
+                  <div className="absolute top-3 left-3 rounded-full bg-background/90 backdrop-blur-md px-3 py-1 font-mono text-[10px] font-bold uppercase tracking-wider text-foreground border border-border/60 shadow-xs">
+                    {review.tag}
+                  </div>
+                </div>
+
+                {/* Content */}
+                <div className="p-5 md:p-6 space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex text-amber-500">
+                      {Array.from({ length: review.rating }).map((_, i) => (
+                        <Star key={i} className="h-4 w-4 fill-current" />
+                      ))}
+                    </div>
+                    <span className="font-mono text-[11px] text-muted-foreground">
+                      {review.date}
+                    </span>
+                  </div>
+
+                  <h3 className="font-bold text-base text-foreground leading-snug">
+                    "{review.title}"
+                  </h3>
+
+                  <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
+                    {review.comment}
+                  </p>
+                </div>
+              </div>
+
+              {/* Author Footer & Product Link */}
+              <div className="border-t border-border/60 bg-surface/40 p-4 px-5 space-y-2.5">
+                <div className="flex items-center justify-between text-xs">
+                  <div>
+                    <span className="font-bold text-foreground">{review.author}</span>
+                    <span className="text-muted-foreground font-mono ml-1.5 flex-inline items-center gap-1">
+                      · <MapPin className="inline h-3 w-3 text-primary mb-0.5" /> {review.city}
+                    </span>
+                  </div>
+                  <span className="flex items-center gap-1 font-mono text-[10px] text-emerald-600 dark:text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded-full">
+                    <Check className="h-3 w-3" /> Verified Buyer
+                  </span>
+                </div>
+
+                <Link
+                  to="/product/$slug"
+                  params={{ slug: review.productSlug }}
+                  className="flex items-center justify-between text-xs font-semibold text-primary hover:underline pt-1 border-t border-border/40"
+                >
+                  <span className="truncate">{review.productName}</span>
+                  <span className="flex items-center gap-1 shrink-0 ml-2">
+                    View Gear <ArrowRight className="h-3 w-3" />
+                  </span>
+                </Link>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* NATIONWIDE COURIER GUARANTEE BADGE */}
+        <div className="mt-8 rounded-2xl border border-border/80 bg-surface/60 p-4 md:p-5 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs font-mono">
+          <div className="flex items-center gap-3">
+            <Truck className="h-5 w-5 text-primary shrink-0" />
+            <span>
+              Express Delivery via <strong>TCS & Trax</strong> across 200+ Pakistani cities. Cash on Delivery (COD) available.
+            </span>
+          </div>
+          <div className="flex items-center gap-3 shrink-0">
+            <ShieldCheck className="h-5 w-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+            <span>7-Day Replacement Guarantee</span>
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }

@@ -113,7 +113,7 @@ export function GadgetAdvisorModal() {
             .map((m) => ({ role: m.role, content: m.content })),
           cartItems: cart.items.map((item) => ({
             name: item.name,
-            quantity: item.quantity,
+            quantity: item.qty,
             unitPrice: item.unitPrice,
           })),
         },
@@ -272,18 +272,25 @@ export function GadgetAdvisorModal() {
             let count = 0;
             bundleProducts.forEach((p) => {
               if (p.stock > 0) {
-                cart.addItem({
-                  productId: p.id,
-                  name: p.name,
-                  slug: p.slug,
-                  unitPrice: effectivePrice(p),
-                  image: p.images[0] ?? "",
-                  quantity: 1,
-                });
+                cart.add(
+                  {
+                    id: p.id,
+                    name: p.name,
+                    slug: p.slug,
+                    unitPrice: effectivePrice(p),
+                    listPrice: p.price,
+                    image: p.images[0] ?? "",
+                    stock: p.stock,
+                  },
+                  1,
+                );
                 count++;
               }
             });
-            toast.success(`Added ${count} items from "${b.title}" to your bag!`);
+            if (count > 0) {
+              toast.success(`Added ${count} items from "${b.title}" to your bag!`);
+              cart.setOpen(true);
+            }
           };
 
           return (

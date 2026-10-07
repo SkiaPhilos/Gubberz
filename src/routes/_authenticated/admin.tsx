@@ -34,6 +34,10 @@ import {
   Upload,
   Printer,
   MessageCircle,
+  Zap,
+  Flame,
+  Copy,
+  Tag,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import {
@@ -55,6 +59,12 @@ import {
   toggleProductField,
   uploadProductImage,
 } from "@/lib/admin.functions";
+import {
+  DEFAULT_COUPONS,
+  DEFAULT_FLASH_SALE,
+  type PromoCoupon,
+  type FlashSaleConfig,
+} from "@/lib/catalog.functions";
 import { formatPKR, imageSrc } from "@/lib/shop";
 
 export const Route = createFileRoute("/_authenticated/admin")({
@@ -71,7 +81,15 @@ export const Route = createFileRoute("/_authenticated/admin")({
 });
 
 type Tab =
-  "overview" | "orders" | "products" | "categories" | "inventory" | "settings" | "sections";
+  | "overview"
+  | "orders"
+  | "products"
+  | "categories"
+  | "inventory"
+  | "settings"
+  | "sections"
+  | "promos"
+  | "flash";
 
 const PRESET_IMAGE_KEYS = [
   "headphones",
@@ -405,6 +423,8 @@ function AdminDashboard() {
               icon: History,
             },
             { id: "settings", label: "Store & Payments", icon: Settings },
+            { id: "promos", label: "Coupons & Promos", icon: Tag },
+            { id: "flash", label: "Flash Drops & Sales", icon: Flame },
             { id: "sections", label: `Editorial Layout (${sections.length})`, icon: ImageIcon },
           ].map((t) => {
             const Icon = t.icon;
@@ -1019,6 +1039,34 @@ function AdminDashboard() {
             )}
           </div>
         )}
+
+        {/* TAB 8: PROMOS & COUPONS GENERATOR */}
+        {tab === "promos" && (
+          <PromosCouponsManager
+            coupons={
+              Array.isArray(settingsMap["coupons"]) && settingsMap["coupons"].length > 0
+                ? settingsMap["coupons"]
+                : DEFAULT_COUPONS
+            }
+            onSaveCoupons={(newCoupons) =>
+              saveSettingMutation.mutate({ key: "coupons", value: newCoupons })
+            }
+          />
+        )}
+
+        {/* TAB 9: FLASH DROPS & MIDNIGHT SALES */}
+        {tab === "flash" && (
+          <FlashSaleManager
+            config={
+              settingsMap["flash_sale"] && typeof settingsMap["flash_sale"] === "object"
+                ? settingsMap["flash_sale"]
+                : DEFAULT_FLASH_SALE
+            }
+            onSaveFlashSale={(cfg) =>
+              saveSettingMutation.mutate({ key: "flash_sale", value: cfg })
+            }
+          />
+        )}
       </main>
     </div>
   );
@@ -1057,6 +1105,22 @@ function OrderInspectionModal({
 }) {
   const [statusNote, setStatusNote] = useState("");
   const [showProofZoom, setShowProofZoom] = useState(false);
+  const [courier, setCourier] = useState<"TCS" | "TRAX" | "LEOPARDS">("TCS");
+  const [consignment, setConsignment] = useState("");
+
+  const handleGenerateConsignment = () => {
+    const randomDigits = Math.floor(10000000 + Math.random() * 90000000);
+    const prefix = courier === "TCS" ? "TCS" : courier === "TRAX" ? "TRX" : "LEO";
+    const code = `${prefix}-${randomDigits}PK`;
+    setConsignment(code);
+    toast.success(`Generated ${courier} Consignment #${code}`);
+  };
+
+  const getTrackingUrl = (c: string, num: string) => {
+    if (c === "TCS") return `https://www.tcsexpress.com/tracking?consignmentNo=${num}`;
+    if (c === "TRAX") return `https://sonic.trax.pk/tracking?tracking_number=${num}`;
+    return `https://leopardscourier.com/tracking?track_numbers=${num}`;
+  };
 
   const { data, isLoading } = useQuery({
     queryKey: ["order-details", orderId],
@@ -1173,6 +1237,66 @@ function OrderInspectionModal({
               </p>
             )}
 
+            {/* PAKISTAN COURIER CONSIGNMENT GENERATOR DESK */}
+            <div className="rounded-2xl border border-primary/30 bg-primary/5 p-3.5 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="font-mono text-xs font-bold text-foreground flex items-center gap-1.5">
+                  <Truck className="h-4 w-4 text-primary" /> Courier Consignment
+                </span>
+                <span className="text-[10px] font-mono text-primary font-bold uppercase">TCS & Trax</span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <select
+                  value={courier}
+                  onChange={(e) => setCourier(e.target.value as any)}
+                  className="rounded-xl border bg-background px-2.5 py-1.5 text-xs font-medium"
+                >
+                  <option value="TCS">TCS Express</option>
+                  <option value="TRAX">Trax Logistics</option>
+                  <option value="LEOPARDS">Leopards Courier</option>
+                </select>
+
+                <button
+                  type="button"
+                  onClick={handleGenerateConsignment}
+                  className="press rounded-xl bg-primary px-3 py-1.5 text-xs font-bold text-primary-foreground hover:brightness-110 shadow-xs cursor-pointer"
+                >
+                  Generate {courier} #
+                </button>
+              </div>
+
+              {consignment && (
+                <div className="rounded-xl bg-background border p-2.5 space-y-2">
+                  <div className="flex items-center justify-between text-xs font-mono font-bold">
+                    <span className="text-primary">{consignment}</span>
+                    <a
+                      href={getTrackingUrl(courier, consignment)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-[10px] text-muted-foreground hover:text-primary underline flex items-center gap-1"
+                    >
+                      Track Portal ↗
+                    </a>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onUpdateStatus(
+                        order.id,
+                        "shipped",
+                        `Dispatched via ${courier}. Consignment #${consignment}. Tracking: ${getTrackingUrl(courier, consignment)}`,
+                      );
+                      toast.success(`Marked as Shipped with ${courier} Consignment!`);
+                    }}
+                    className="w-full press rounded-lg bg-indigo-600 hover:bg-indigo-500 py-1.5 text-xs font-bold text-white shadow-xs cursor-pointer"
+                  >
+                    🚀 Assign & Mark Shipped
+                  </button>
+                </div>
+              )}
+            </div>
+
             {/* Instant Pakistani WhatsApp Dispatch Templates (Phase 4) */}
             <div className="pt-3 border-t space-y-1.5">
               <span className="font-mono text-[10px] uppercase text-muted-foreground font-bold flex items-center gap-1">
@@ -1191,7 +1315,9 @@ function OrderInspectionModal({
                 </a>
                 <a
                   href={`https://wa.me/${order.phone.replace(/\D/g, "")}?text=${encodeURIComponent(
-                    `Hi ${order.customer_name}! Great news — your Gubberz order #${order.code} has been dispatched! Track your parcel live here: ${typeof window !== "undefined" ? window.location.origin : ""}/order?code=${order.code}&phone=${encodeURIComponent(order.phone)}`,
+                    consignment
+                      ? `Hi ${order.customer_name}! Great news — your Gubberz order #${order.code} has been dispatched via ${courier} (Tracking #${consignment})! Track live here: ${getTrackingUrl(courier, consignment)}`
+                      : `Hi ${order.customer_name}! Great news — your Gubberz order #${order.code} has been dispatched! Track your parcel live here: ${typeof window !== "undefined" ? window.location.origin : ""}/order?code=${order.code}&phone=${encodeURIComponent(order.phone)}`,
                   )}`}
                   target="_blank"
                   rel="noreferrer"
@@ -3757,5 +3883,450 @@ function SectionEditDialog({
         </div>
       )}
     </>
+  );
+}
+
+// ==========================================
+// PROMOS & COUPONS MANAGER
+// ==========================================
+function PromosCouponsManager({
+  coupons,
+  onSaveCoupons,
+}: {
+  coupons: PromoCoupon[];
+  onSaveCoupons: (updated: PromoCoupon[]) => void;
+}) {
+  const [list, setList] = useState<PromoCoupon[]>(coupons);
+  const [code, setCode] = useState("");
+  const [discountPercent, setDiscountPercent] = useState(10);
+  const [minOrder, setMinOrder] = useState(2500);
+  const [description, setDescription] = useState("");
+
+  const handleGenerateRandom = () => {
+    const prefixes = ["GUBBERZ", "PAK", "VIP", "DROP", "TECH"];
+    const prefix = prefixes[Math.floor(Math.random() * prefixes.length)];
+    const num = Math.floor(10 + Math.random() * 90);
+    setCode(`${prefix}${num}`);
+  };
+
+  const handleAdd = (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanCode = code.trim().toUpperCase();
+    if (!cleanCode) {
+      toast.error("Please provide a coupon code");
+      return;
+    }
+    const existingIndex = list.findIndex((c) => c.code.toUpperCase() === cleanCode);
+    let updated: PromoCoupon[];
+    if (existingIndex >= 0) {
+      updated = [...list];
+      updated[existingIndex] = {
+        ...updated[existingIndex],
+        discountPercent,
+        minOrderAmount: minOrder || undefined,
+        description: description || undefined,
+        active: true,
+      };
+      toast.success(`Updated coupon ${cleanCode}!`);
+    } else {
+      updated = [
+        ...list,
+        {
+          code: cleanCode,
+          discountPercent,
+          minOrderAmount: minOrder || undefined,
+          description: description || `Special ${discountPercent}% discount across Pakistan`,
+          usedCount: 0,
+          active: true,
+        },
+      ];
+      toast.success(`Created coupon ${cleanCode}!`);
+    }
+    setList(updated);
+    onSaveCoupons(updated);
+    setCode("");
+    setDescription("");
+  };
+
+  const handleToggle = (cCode: string) => {
+    const updated = list.map((c) =>
+      c.code === cCode ? { ...c, active: !c.active } : c,
+    );
+    setList(updated);
+    onSaveCoupons(updated);
+    toast.success("Coupon status toggled");
+  };
+
+  const handleDelete = (cCode: string) => {
+    const updated = list.filter((c) => c.code !== cCode);
+    setList(updated);
+    onSaveCoupons(updated);
+    toast.success(`Deleted coupon ${cCode}`);
+  };
+
+  const handleCopy = (cCode: string) => {
+    navigator.clipboard.writeText(cCode);
+    toast.success(`Copied "${cCode}" to clipboard!`);
+  };
+
+  return (
+    <div className="space-y-8">
+      <div>
+        <h2 className="text-2xl font-extrabold tracking-tight">
+          Coupons & Promotional Codes Generator
+        </h2>
+        <p className="text-sm text-muted-foreground mt-1">
+          Create custom voucher codes, set minimum order values, and manage Gubberoo VIP coupons across Pakistan.
+        </p>
+      </div>
+
+      <div className="grid gap-6 md:grid-cols-3">
+        {/* CREATE COUPON FORM */}
+        <div className="rounded-3xl border bg-card p-6 shadow-sm md:col-span-1 space-y-4">
+          <div className="flex items-center gap-2 border-b pb-3">
+            <Tag className="h-5 w-5 text-primary" />
+            <h3 className="font-bold text-base">Generate New Coupon</h3>
+          </div>
+
+          <form onSubmit={handleAdd} className="space-y-4 text-xs">
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="font-mono uppercase text-muted-foreground font-bold">
+                  Coupon Code
+                </label>
+                <button
+                  type="button"
+                  onClick={handleGenerateRandom}
+                  className="text-primary hover:underline font-mono cursor-pointer"
+                >
+                  ⚡ Random Code
+                </button>
+              </div>
+              <input
+                type="text"
+                value={code}
+                onChange={(e) => setCode(e.target.value.toUpperCase())}
+                placeholder="e.g. GUBBEROO5"
+                className="w-full rounded-xl border bg-background p-2.5 font-mono uppercase font-bold text-sm tracking-wider"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block font-mono uppercase text-muted-foreground font-bold mb-1">
+                Discount Percentage (%)
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="range"
+                  min="3"
+                  max="35"
+                  step="1"
+                  value={discountPercent}
+                  onChange={(e) => setDiscountPercent(Number(e.target.value))}
+                  className="flex-1 cursor-pointer"
+                />
+                <span className="font-mono font-bold text-sm bg-primary/10 text-primary px-2.5 py-1 rounded-lg">
+                  {discountPercent}%
+                </span>
+              </div>
+            </div>
+
+            <div>
+              <label className="block font-mono uppercase text-muted-foreground font-bold mb-1">
+                Minimum Order Value (PKR)
+              </label>
+              <input
+                type="number"
+                value={minOrder}
+                onChange={(e) => setMinOrder(Number(e.target.value))}
+                placeholder="2000"
+                className="w-full rounded-xl border bg-background p-2.5 font-mono font-semibold"
+              />
+            </div>
+
+            <div>
+              <label className="block font-mono uppercase text-muted-foreground font-bold mb-1">
+                Description / Campaign Note
+              </label>
+              <input
+                type="text"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="e.g. Gubberoo AI Setup Bundle Perk"
+                className="w-full rounded-xl border bg-background p-2.5 text-xs"
+              />
+            </div>
+
+            <button
+              type="submit"
+              className="press w-full rounded-2xl bg-primary py-3 text-center font-bold text-xs text-primary-foreground shadow-sm hover:brightness-110 cursor-pointer"
+            >
+              + Save & Publish Coupon
+            </button>
+          </form>
+        </div>
+
+        {/* ACTIVE COUPONS TABLE */}
+        <div className="rounded-3xl border bg-card p-6 shadow-sm md:col-span-2 space-y-4">
+          <div className="flex items-center justify-between border-b pb-3">
+            <div>
+              <h3 className="font-bold text-base">Active Store Coupons ({list.length})</h3>
+              <p className="text-xs text-muted-foreground">
+                Validated automatically in Cart Drawer and at Checkout.
+              </p>
+            </div>
+          </div>
+
+          <div className="divide-y">
+            {list.map((c) => (
+              <div
+                key={c.code}
+                className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+              >
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono font-extrabold text-sm text-foreground bg-surface border px-2.5 py-0.5 rounded-lg tracking-wider">
+                      {c.code}
+                    </span>
+                    <span className="font-mono text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md">
+                      {c.discountPercent}% OFF
+                    </span>
+                    <span
+                      className={`font-mono text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                        c.active
+                          ? "bg-success/20 text-success"
+                          : "bg-surface text-muted-foreground"
+                      }`}
+                    >
+                      {c.active ? "Active" : "Disabled"}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {c.description || "General discount"} · Min:{" "}
+                    <strong>{formatPKR(c.minOrderAmount || 0)}</strong> · Uses:{" "}
+                    <strong>{c.usedCount || 0}</strong>
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleCopy(c.code)}
+                    className="press rounded-lg border bg-surface px-2.5 py-1.5 font-mono text-[11px] font-medium hover:bg-muted flex items-center gap-1 cursor-pointer"
+                    title="Copy code"
+                  >
+                    <Copy className="h-3 w-3" /> Copy
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleToggle(c.code)}
+                    className="press rounded-lg border bg-surface px-2.5 py-1.5 font-mono text-[11px] font-medium hover:bg-muted cursor-pointer"
+                  >
+                    {c.active ? "Disable" : "Enable"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(c.code)}
+                    className="press rounded-lg bg-destructive/10 text-destructive p-1.5 hover:bg-destructive/20 cursor-pointer"
+                    title="Delete coupon"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
+// FLASH DROPS & MIDNIGHT SALES MANAGER
+// ==========================================
+function FlashSaleManager({
+  config,
+  onSaveFlashSale,
+}: {
+  config: FlashSaleConfig;
+  onSaveFlashSale: (updated: FlashSaleConfig) => void;
+}) {
+  const [active, setActive] = useState(config.active);
+  const [title, setTitle] = useState(config.title || "Midnight Drop");
+  const [bannerText, setBannerText] = useState(
+    config.bannerText ||
+      "⚡ MIDNIGHT DROP · EXTRA 10% OFF WITH CODE MIDNIGHT10 · NATIONWIDE EXPRESS DISPATCH",
+  );
+  const [promoCode, setPromoCode] = useState(config.promoCode || "MIDNIGHT10");
+  const [discountPercent, setDiscountPercent] = useState(config.discountPercent || 10);
+  const [targetDate, setTargetDate] = useState(config.targetDate);
+
+  const handleSetHours = (hours: number) => {
+    const future = new Date(Date.now() + hours * 3600 * 1000).toISOString();
+    setTargetDate(future);
+    toast.success(`Target countdown set to +${hours} hours!`);
+  };
+
+  const handleSave = (e: React.FormEvent) => {
+    e.preventDefault();
+    const updated: FlashSaleConfig = {
+      active,
+      title,
+      bannerText,
+      promoCode,
+      discountPercent,
+      targetDate,
+    };
+    onSaveFlashSale(updated);
+    toast.success("Flash Drop & Midnight Sale configuration saved!");
+  };
+
+  return (
+    <div className="space-y-8">
+      <div>
+        <h2 className="text-2xl font-extrabold tracking-tight flex items-center gap-2">
+          <Flame className="h-6 w-6 text-amber-500 fill-current animate-pulse" /> Flash Drops & Midnight Sales Engine
+        </h2>
+        <p className="text-sm text-muted-foreground mt-1">
+          Manage the live countdown banner, emergency flash drops, and midnight promotion announcements.
+        </p>
+      </div>
+
+      <div className="grid gap-6 md:grid-cols-2">
+        <form onSubmit={handleSave} className="rounded-3xl border bg-card p-6 shadow-sm space-y-5 text-xs">
+          <div className="flex items-center justify-between border-b pb-4">
+            <div>
+              <h3 className="font-bold text-base text-foreground">Sale Status</h3>
+              <p className="text-muted-foreground">Toggle the storewide countdown banner on or off</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setActive(!active)}
+              className={`press rounded-full px-4 py-1.5 font-mono text-xs font-bold transition-colors cursor-pointer ${
+                active ? "bg-amber-500 text-zinc-950" : "bg-surface text-muted-foreground border"
+              }`}
+            >
+              {active ? "⚡ LIVE FLASH DROP ACTIVE" : "OFFLINE / HIDDEN"}
+            </button>
+          </div>
+
+          <div>
+            <label className="block font-mono uppercase text-muted-foreground font-bold mb-1">
+              Campaign Title
+            </label>
+            <input
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              className="w-full rounded-xl border bg-background p-2.5 text-sm font-bold"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block font-mono uppercase text-muted-foreground font-bold mb-1">
+              Banner Announcement Bar Text
+            </label>
+            <input
+              type="text"
+              value={bannerText}
+              onChange={(e) => setBannerText(e.target.value)}
+              className="w-full rounded-xl border bg-background p-2.5 text-xs font-medium"
+              required
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block font-mono uppercase text-muted-foreground font-bold mb-1">
+                Featured Coupon Code
+              </label>
+              <input
+                type="text"
+                value={promoCode}
+                onChange={(e) => setPromoCode(e.target.value.toUpperCase())}
+                className="w-full rounded-xl border bg-background p-2.5 font-mono uppercase font-bold text-sm"
+                required
+              />
+            </div>
+            <div>
+              <label className="block font-mono uppercase text-muted-foreground font-bold mb-1">
+                Discount (%)
+              </label>
+              <input
+                type="number"
+                value={discountPercent}
+                onChange={(e) => setDiscountPercent(Number(e.target.value))}
+                className="w-full rounded-xl border bg-background p-2.5 font-mono font-bold text-sm"
+                required
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block font-mono uppercase text-muted-foreground font-bold mb-2">
+              Countdown Target Time
+            </label>
+            <div className="flex flex-wrap gap-2 mb-3">
+              {[6, 12, 24, 48].map((hrs) => (
+                <button
+                  key={hrs}
+                  type="button"
+                  onClick={() => handleSetHours(hrs)}
+                  className="press rounded-xl border bg-surface px-3 py-1.5 font-mono text-xs font-semibold hover:bg-muted cursor-pointer"
+                >
+                  +{hrs} Hours
+                </button>
+              ))}
+            </div>
+            <input
+              type="text"
+              value={targetDate}
+              onChange={(e) => setTargetDate(e.target.value)}
+              placeholder="ISO date timestamp"
+              className="w-full rounded-xl border bg-background p-2.5 font-mono text-xs text-muted-foreground"
+            />
+          </div>
+
+          <button
+            type="submit"
+            className="press w-full rounded-2xl bg-amber-500 hover:bg-amber-400 py-3 text-center font-bold text-xs text-zinc-950 shadow-sm cursor-pointer"
+          >
+            💾 Save Flash Drop Configuration
+          </button>
+        </form>
+
+        {/* LIVE STORE PREVIEW */}
+        <div className="rounded-3xl border bg-card p-6 shadow-sm space-y-4">
+          <h3 className="font-bold text-base border-b pb-3">Live Banner Preview</h3>
+          <p className="text-xs text-muted-foreground">
+            This is how the ticking countdown looks to customers at the top of Gubberz across desktop and mobile:
+          </p>
+
+          <div className="rounded-2xl overflow-hidden border border-amber-500/40 shadow-sm">
+            <div className="bg-gradient-to-r from-zinc-950 via-zinc-900 to-zinc-950 text-white p-3 text-xs flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <span className="flex items-center gap-1 rounded-full bg-amber-500/20 border border-amber-500/40 px-2 py-0.5 text-[10px] font-mono font-bold text-amber-400 uppercase">
+                  ⚡ Flash Drop
+                </span>
+                <span className="font-bold text-zinc-100 text-xs truncate max-w-xs">
+                  {bannerText}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-xs text-amber-400 bg-black/60 px-2 py-0.5 rounded border border-amber-500/30">
+                  05h : 22m : 41s
+                </span>
+                <span className="rounded bg-amber-500 text-zinc-950 px-2 py-0.5 font-mono font-bold text-[10px]">
+                  Code: {promoCode}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }

@@ -172,6 +172,24 @@ export function ProductCard({ product, size = "md" }: { product: Product; size?:
         </div>
       </Link>
 
+      {/* LOW STOCK URGENCY PROGRESS BAR */}
+      {product.stock > 0 && product.stock <= (product.low_stock_threshold || 10) && (
+        <div className="mt-3 px-1 space-y-1">
+          <div className="flex justify-between text-[10px] font-mono font-bold text-amber-600 dark:text-amber-400">
+            <span>⚡ Only {product.stock} left in stock</span>
+            <span>Selling fast</span>
+          </div>
+          <div className="h-1.5 w-full bg-surface rounded-full overflow-hidden border border-border/60">
+            <div
+              className="h-full bg-gradient-to-r from-amber-500 to-orange-500 rounded-full"
+              style={{
+                width: `${Math.max(15, Math.min(100, (product.stock / 15) * 100))}%`,
+              }}
+            />
+          </div>
+        </div>
+      )}
+
       <div className="mt-4 flex items-center justify-between border-t border-border/40 pt-3 px-1">
         <span
           className={`font-mono text-[11px] uppercase tracking-wider ${
