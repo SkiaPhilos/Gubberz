@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import type { Database } from "@/integrations/supabase/types";
+import { DEFAULT_STORED_REVIEWS, type StoredReview } from "@/lib/reviews";
 
 const DEFAULT_SUPABASE_URL = "https://csvnjedaklqwgwyeidkm.supabase.co";
 const DEFAULT_SUPABASE_KEY = "sb_publishable_p_FlIPIEnKJ49VbCeRsjzA_0MVh3gR9";
@@ -581,3 +582,123 @@ export const lookupOrder = createServerFn({ method: "POST" })
     if (error) throw new Error("Could not look up order");
     return (res as OrderView | null) ?? null;
   });
+
+export const getPublicReviews = createServerFn({ method: "GET" })
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        productSlug: z.string().optional(),
+        city: z.string().optional(),
+      })
+      .parse(d ?? {}),
+  )
+  .handler(async ({ data }) => {
+    try {
+      const { data: dbData } = await publicClient()
+        .from("store_settings")
+        .select("value")
+        .eq("key", "customer_reviews")
+        .maybeSingle();
+
+      const allReviews: StoredReview[] =
+        dbData && Array.isArray(dbData.value) && (dbData.value as any[]).length > 0
+          ? (dbData.value as StoredReview[])
+          : DEFAULT_STORED_REVIEWS;
+
+      let filtered = allReviews.filter((r) => r.status === "approved");
+
+      if (data.productSlug) {
+        filtered = filtered.filter((r) => r.productSlug === data.productSlug);
+      }
+      if (data.city && data.city !== "All") {
+        filtered = filtered.filter((r) => r.city.toLowerCase() === data.city!.toLowerCase());
+      }
+
+      return filtered;
+    } catch {
+      return DEFAULT_STORED_REVIEWS.filter((r) => r.status === "approved");
+    }
+  });
+
+function serverDbClient() {
+  const url =
+    process.env["SUPABASE_URL"] ||
+    process.env["VITE_SUPABASE_URL"] ||
+    DEFAULT_SUPABASE_URL;
+
+  const key =
+    process.env["SUPABASE_SERVICE_ROLE_KEY"] ||
+    process.env["SUPABASE_PUBLISHABLE_KEY"] ||
+    process.env["SUPABASE_ANON_KEY"] ||
+    process.env["VITE_SUPABASE_PUBLISHABLE_KEY"] ||
+    process.env["VITE_SUPABASE_ANON_KEY"] ||
+    DEFAULT_SUPABASE_KEY;
+
+  return createClient<Database>(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+}
+
+export const submitCustomerReview = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        productSlug: z.string().min(1),
+        productName: z.string().min(1),
+        author: z.string().trim().min(2).max(100),
+        city: z.string().trim().min(2).max(80),
+        rating: z.number().int().min(1).max(5),
+        title: z.string().trim().min(2).max(150),
+        comment: z.string().trim().min(5).max(1500),
+        setupPhoto: z.string().optional(),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    try {
+      const client = serverDbClient();
+      const { data: currentRows } = await client
+        .from("store_settings")
+        .select("value")
+        .eq("key", "customer_reviews")
+        .maybeSingle();
+
+      const existing: StoredReview[] =
+        currentRows && Array.isArray(currentRows.value) && (currentRows.value as any[]).length > 0
+          ? (currentRows.value as StoredReview[])
+          : [...DEFAULT_STORED_REVIEWS];
+
+      const newReview: StoredReview = {
+        id: "rev-" + Math.random().toString(36).slice(2, 10),
+        productSlug: data.productSlug,
+        productName: data.productName,
+        author: data.author,
+        city: data.city,
+        rating: data.rating,
+        title: data.title,
+        comment: data.comment,
+        verified: true,
+        setupPhoto: data.setupPhoto,
+        featuredOnHome: false,
+        status: "approved",
+        createdAt: new Date().toISOString(),
+      };
+
+      const updated = [newReview, ...existing];
+
+      // Save to store_settings
+      const { error: upsertErr } = await client.from("store_settings").upsert(
+        { key: "customer_reviews", value: updated as any },
+        { onConflict: "key" },
+      );
+      if (upsertErr) {
+        console.warn("Could not upsert into store_settings, falling back to local memory:", upsertErr);
+      }
+
+      return { ok: true, review: newReview };
+    } catch (err: any) {
+      console.error("Error submitting review:", err);
+      return { ok: false, error: err?.message || "Failed to submit review" };
+    }
+  });
+

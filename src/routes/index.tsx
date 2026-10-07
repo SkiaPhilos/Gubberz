@@ -1,11 +1,18 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useSuspenseQuery, queryOptions } from "@tanstack/react-query";
+import { useSuspenseQuery, queryOptions, useQuery } from "@tanstack/react-query";
 import { motion, useReducedMotion, useScroll, useTransform } from "motion/react";
 import { useEffect, useRef, useState } from "react";
-import { Star, MapPin, Check, Truck, ShieldCheck, ArrowRight } from "lucide-react";
+import { Star, MapPin, Check, Truck, ShieldCheck, ArrowRight, Sparkles } from "lucide-react";
 import { ProductCard } from "@/components/shop/ProductCard";
 import { getHomeSections, type HomeSection } from "@/lib/content.functions";
-import { categoriesQuery, effectivePrice, formatPKR, imageSrc, productsQuery } from "@/lib/shop";
+import {
+  categoriesQuery,
+  effectivePrice,
+  formatPKR,
+  imageSrc,
+  productsQuery,
+  publicReviewsQuery,
+} from "@/lib/shop";
 import { FEATURED_PAKISTANI_REVIEWS } from "@/lib/reviews";
 import sitter from "@/assets/characters/sitter.png";
 
@@ -37,6 +44,7 @@ export const Route = createFileRoute("/")({
       context.queryClient.ensureQueryData(productsQuery()),
       context.queryClient.ensureQueryData(categoriesQuery),
       context.queryClient.ensureQueryData(sectionsQuery),
+      context.queryClient.ensureQueryData(publicReviewsQuery()),
     ]),
   component: Home,
 });
@@ -343,6 +351,31 @@ function SectionHeading({ section, light = false }: { section: HomeSection; ligh
 }
 
 function PakistaniCustomerShowcase() {
+  const { data: dbReviews } = useQuery(publicReviewsQuery());
+
+  const featured =
+    dbReviews && dbReviews.length > 0
+      ? dbReviews
+          .filter((r) => r.featuredOnHome && r.setupPhoto)
+          .map((r) => ({
+            id: r.id,
+            author: r.author,
+            city: r.city,
+            rating: r.rating,
+            date: "Verified",
+            productName: r.productName,
+            productSlug: r.productSlug,
+            title: r.title,
+            comment: r.comment,
+            verified: r.verified,
+            photo: r.setupPhoto!,
+            tag: `${r.productName} · ${r.city}`,
+          }))
+      : [];
+
+  const displayList = (featured.length > 0 ? featured : FEATURED_PAKISTANI_REVIEWS).slice(0, 3);
+  const totalReviewsCount = dbReviews && dbReviews.length > 0 ? dbReviews.length : FEATURED_PAKISTANI_REVIEWS.length;
+
   return (
     <section className="mx-auto mt-20 max-w-7xl px-5 md:mt-32 md:px-8">
       <div className="border-t border-border/80 pt-12 md:pt-16">
@@ -360,16 +393,23 @@ function PakistaniCustomerShowcase() {
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
             <span className="font-mono text-xs text-muted-foreground">
               Average <strong>4.9 / 5.0</strong> rating across Pakistan
             </span>
+            <Link
+              to="/reviews"
+              className="press inline-flex items-center gap-1.5 rounded-full bg-ink px-5 py-2.5 font-mono text-xs font-bold text-ink-foreground hover:bg-primary transition-colors cursor-pointer"
+            >
+              <span>All Reviews ({totalReviewsCount})</span>
+              <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
           </div>
         </div>
 
         {/* SETUP REVIEWS GRID */}
         <div className="mt-10 grid gap-6 md:grid-cols-3">
-          {FEATURED_PAKISTANI_REVIEWS.map((review) => (
+          {displayList.map((review) => (
             <div
               key={review.id}
               className="group flex flex-col justify-between rounded-3xl border border-border/80 bg-card overflow-hidden shadow-xs transition-all hover:border-primary/50 hover:shadow-md"

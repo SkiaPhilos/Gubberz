@@ -1,5 +1,5 @@
 import { createFileRoute, Link, notFound } from "@tanstack/react-router";
-import { useSuspenseQuery } from "@tanstack/react-query";
+import { useSuspenseQuery, useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -17,6 +17,7 @@ import {
   Sparkles,
   Heart,
   ChevronDown,
+  Camera,
 } from "lucide-react";
 import {
   availability,
@@ -27,8 +28,10 @@ import {
   productQuery,
   productsQuery,
   settingsQuery,
+  publicReviewsQuery,
   imageSrc,
 } from "@/lib/shop";
+import { submitCustomerReview } from "@/lib/catalog.functions";
 import { flyToCart, useCart } from "@/lib/cart";
 import { useWishlist, useRecentlyViewed } from "@/lib/discovery";
 import { ProductCard } from "@/components/shop/ProductCard";
@@ -157,9 +160,35 @@ function ProductPage() {
   const [showStickyBar, setShowStickyBar] = useState(false);
 
   // Reviews state
-  const [reviews, setReviews] = useState<Review[]>(INITIAL_REVIEWS[slug] ?? INITIAL_REVIEWS.default);
+  const queryClient = useQueryClient();
+  const { data: dbReviews } = useQuery(publicReviewsQuery({ productSlug: slug }));
+  const reviews: Review[] =
+    dbReviews && dbReviews.length > 0
+      ? dbReviews.map((r) => ({
+          id: r.id,
+          author: r.author,
+          city: r.city,
+          rating: r.rating,
+          date: new Date(r.createdAt).toLocaleDateString("en-PK", {
+            month: "short",
+            day: "numeric",
+          }),
+          title: r.title,
+          comment: r.comment,
+          verified: r.verified,
+          setupPhoto: r.setupPhoto,
+        }))
+      : (INITIAL_REVIEWS[slug] ?? INITIAL_REVIEWS.default);
+
   const [reviewModalOpen, setReviewModalOpen] = useState(false);
-  const [newReview, setNewReview] = useState({ name: "", city: "Karachi", rating: 5, title: "", comment: "" });
+  const [newReview, setNewReview] = useState({
+    name: "",
+    city: "Karachi",
+    rating: 5,
+    title: "",
+    comment: "",
+    setupPhoto: "",
+  });
 
   // Bundle state
   const [bundleChecked, setBundleChecked] = useState(true);
@@ -294,26 +323,40 @@ function ProductPage() {
     }
   };
 
+  const submitMutation = useMutation({
+    mutationFn: (data: Parameters<typeof submitCustomerReview>[0]["data"]) =>
+      submitCustomerReview({ data }),
+    onSuccess: (res) => {
+      if (res.ok) {
+        toast.success("Thank you for your verified review!");
+        queryClient.invalidateQueries({ queryKey: ["public-reviews"] });
+        setReviewModalOpen(false);
+        setNewReview({ name: "", city: "Karachi", rating: 5, title: "", comment: "", setupPhoto: "" });
+      } else {
+        toast.error(res.error || "Could not submit review");
+      }
+    },
+    onError: (err: any) => {
+      toast.error(err.message || "Failed to submit review");
+    },
+  });
+
   const submitReview = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newReview.name || !newReview.title || !newReview.comment) {
       toast.error("Please fill in all review fields");
       return;
     }
-    const created: Review = {
-      id: "rev_" + Date.now(),
+    submitMutation.mutate({
+      productSlug: p.slug,
+      productName: p.name,
       author: newReview.name,
       city: newReview.city,
       rating: newReview.rating,
-      date: "Just now",
       title: newReview.title,
       comment: newReview.comment,
-      verified: true,
-    };
-    setReviews([created, ...reviews]);
-    setReviewModalOpen(false);
-    toast.success("Thank you for your verified review!");
-    setNewReview({ name: "", city: "Karachi", rating: 5, title: "", comment: "" });
+      setupPhoto: newReview.setupPhoto.trim() || undefined,
+    });
   };
 
   const avgRating = (
@@ -386,7 +429,10 @@ function ProductPage() {
                     onClick={() => {
                       setSelectedColor(c.name);
                       if (c.image) {
-                        const targetIdx = gallery.findIndex((g) => g.src === c.image);
+                        const targetSrc = imageSrc(c.image);
+                        const targetIdx = gallery.findIndex(
+                          (g) => g.src === targetSrc || g.src === c.image,
+                        );
                         if (targetIdx !== -1) setActiveImgIndex(targetIdx);
                       }
                     }}
@@ -518,8 +564,19 @@ function ProductPage() {
                   <button
                     key={c.name}
                     type="button"
-                    onClick={() => setSelectedColor(c.name)}
-                    className={`press group flex items-center gap-2.5 rounded-full border px-3.5 py-2 text-xs font-semibold transition-all ${
+                    onClick={() => {
+                      setSelectedColor(c.name);
+                      if (c.image) {
+                        const targetSrc = imageSrc(c.image);
+                        const foundIdx = gallery.findIndex(
+                          (g) => g.src === targetSrc || g.src === c.image,
+                        );
+                        if (foundIdx >= 0) {
+                          setActiveImgIndex(foundIdx);
+                        }
+                      }
+                    }}
+                    className={`press group flex items-center gap-2.5 rounded-full border px-3.5 py-2 text-xs font-semibold transition-all cursor-pointer ${
                       selectedColor === c.name
                         ? "border-primary bg-primary/10 text-foreground ring-2 ring-primary/20"
                         : "border-border/60 bg-surface text-muted-foreground hover:text-foreground"
@@ -560,16 +617,24 @@ function ProductPage() {
                     <option key={s.name} value={s.name}>
                       {s.name}
                       {s.extraPrice && s.extraPrice > 0 ? ` (+${formatPKR(s.extraPrice)})` : ""}
+                      {typeof s.stock === "number" ? ` · ${s.stock > 0 ? `${s.stock} in stock` : "Out of stock"}` : ""}
                     </option>
                   ))}
                 </select>
                 <ChevronDown className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               </div>
-              {currentSizeObj?.specsNote && (
-                <p className="text-[11px] font-mono text-muted-foreground">
-                  ℹ {currentSizeObj.specsNote}
-                </p>
-              )}
+              <div className="flex items-center justify-between text-[11px] font-mono text-muted-foreground">
+                {currentSizeObj?.specsNote ? (
+                  <span>ℹ {currentSizeObj.specsNote}</span>
+                ) : (
+                  <span />
+                )}
+                {typeof currentSizeObj?.stock === "number" && (
+                  <span className={currentSizeObj.stock <= 3 ? "text-amber-600 font-bold" : ""}>
+                    ● {currentSizeObj.stock > 0 ? `${currentSizeObj.stock} units available` : "Out of stock"}
+                  </span>
+                )}
+              </div>
             </div>
           )}
 
@@ -969,12 +1034,20 @@ function ProductPage() {
             </p>
           </div>
 
-          <button
-            onClick={() => setReviewModalOpen(true)}
-            className="press rounded-full bg-ink px-6 py-2.5 text-xs font-semibold text-ink-foreground hover:bg-primary"
-          >
-            Write a Review
-          </button>
+          <div className="flex items-center gap-3">
+            <Link
+              to="/reviews"
+              className="text-xs font-semibold text-primary hover:underline"
+            >
+              All Pakistani Reviews ({reviews.length}) →
+            </Link>
+            <button
+              onClick={() => setReviewModalOpen(true)}
+              className="press rounded-full bg-ink px-6 py-2.5 text-xs font-semibold text-ink-foreground hover:bg-primary cursor-pointer"
+            >
+              Write a Review
+            </button>
+          </div>
         </div>
 
         {/* Rating Breakdown Bar */}
@@ -1227,19 +1300,33 @@ function ProductPage() {
                 />
               </div>
 
+              <div>
+                <label className="block text-xs font-mono uppercase text-muted-foreground mb-1">
+                  Customer Desk Setup Photo (Optional URL)
+                </label>
+                <input
+                  type="url"
+                  value={newReview.setupPhoto}
+                  onChange={(e) => setNewReview({ ...newReview, setupPhoto: e.target.value })}
+                  placeholder="https://... (URL of your desk setup or gear)"
+                  className="h-10 w-full rounded-xl bg-surface px-3 font-mono text-xs outline-none ring-primary focus:ring-2"
+                />
+              </div>
+
               <div className="flex justify-end gap-3 pt-2">
                 <button
                   type="button"
                   onClick={() => setReviewModalOpen(false)}
-                  className="press rounded-full bg-surface px-4 py-2 text-xs font-medium"
+                  className="press rounded-full bg-surface px-4 py-2 text-xs font-medium cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="press rounded-full bg-ink px-5 py-2 text-xs font-bold text-ink-foreground hover:bg-primary"
+                  disabled={submitMutation.isPending}
+                  className="press rounded-full bg-ink px-5 py-2 text-xs font-bold text-ink-foreground hover:bg-primary disabled:opacity-50 cursor-pointer"
                 >
-                  Submit Review
+                  {submitMutation.isPending ? "Submitting…" : "Submit Review"}
                 </button>
               </div>
             </form>

@@ -38,6 +38,14 @@ import {
   Flame,
   Copy,
   Tag,
+  Star,
+  MessageSquare,
+  Pin,
+  PinOff,
+  Camera,
+  Sparkles,
+  ArrowLeft,
+  ArrowRight,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import {
@@ -58,6 +66,8 @@ import {
   toggleCategoryPublished,
   toggleProductField,
   uploadProductImage,
+  moderateReview,
+  addManualReview,
 } from "@/lib/admin.functions";
 import {
   DEFAULT_COUPONS,
@@ -65,6 +75,7 @@ import {
   type PromoCoupon,
   type FlashSaleConfig,
 } from "@/lib/catalog.functions";
+import { DEFAULT_STORED_REVIEWS, type StoredReview } from "@/lib/reviews";
 import { formatPKR, imageSrc } from "@/lib/shop";
 
 export const Route = createFileRoute("/_authenticated/admin")({
@@ -87,9 +98,10 @@ type Tab =
   | "categories"
   | "inventory"
   | "settings"
-  | "sections"
   | "promos"
-  | "flash";
+  | "flash"
+  | "reviews"
+  | "sections";
 
 const PRESET_IMAGE_KEYS = [
   "headphones",
@@ -286,6 +298,34 @@ function AdminDashboard() {
     onError: (err: any) => toast.error(err.message || "Failed to delete product"),
   });
 
+  const moderateReviewMutation = useMutation({
+    mutationFn: ({
+      reviewId,
+      action,
+      data,
+    }: {
+      reviewId: string;
+      action: "toggle_status" | "toggle_featured" | "delete" | "update";
+      data?: any;
+    }) => moderateReview({ data: { reviewId, action, data } }),
+    onSuccess: () => {
+      toast.success("Review updated!");
+      queryClient.invalidateQueries({ queryKey: ["admin-snapshot"] });
+      queryClient.invalidateQueries({ queryKey: ["public-reviews"] });
+    },
+    onError: (err: any) => toast.error(err.message || "Failed to update review"),
+  });
+
+  const addManualReviewMutation = useMutation({
+    mutationFn: (review: any) => addManualReview({ data: review }),
+    onSuccess: () => {
+      toast.success("Customer review added!");
+      queryClient.invalidateQueries({ queryKey: ["admin-snapshot"] });
+      queryClient.invalidateQueries({ queryKey: ["public-reviews"] });
+    },
+    onError: (err: any) => toast.error(err.message || "Failed to add review"),
+  });
+
   async function handleSignOut() {
     await supabase.auth.signOut();
     toast.success("Signed out");
@@ -345,6 +385,13 @@ function AdminDashboard() {
 
   const settingsMap: Record<string, any> = {};
   for (const s of settings) settingsMap[s.key] = s.value;
+
+  const reviewsList: StoredReview[] =
+    Array.isArray(settingsMap["customer_reviews"]) && settingsMap["customer_reviews"].length > 0
+      ? settingsMap["customer_reviews"]
+      : DEFAULT_STORED_REVIEWS;
+
+  const pendingReviews = reviewsList.filter((r) => r.status === "pending");
 
   const lowStock = products.filter((p: any) => p.stock <= (p.low_stock_threshold ?? 3));
   const pendingVerificationOrders = orders.filter((o: any) => o.status === "payment_verification");
@@ -425,6 +472,12 @@ function AdminDashboard() {
             { id: "settings", label: "Store & Payments", icon: Settings },
             { id: "promos", label: "Coupons & Promos", icon: Tag },
             { id: "flash", label: "Flash Drops & Sales", icon: Flame },
+            {
+              id: "reviews",
+              label: `Reviews (${reviewsList.length})`,
+              icon: MessageSquare,
+              badge: pendingReviews.length > 0 ? `${pendingReviews.length} pending` : undefined,
+            },
             { id: "sections", label: `Editorial Layout (${sections.length})`, icon: ImageIcon },
           ].map((t) => {
             const Icon = t.icon;
@@ -1064,6 +1117,21 @@ function AdminDashboard() {
             }
             onSaveFlashSale={(cfg) =>
               saveSettingMutation.mutate({ key: "flash_sale", value: cfg })
+            }
+          />
+        )}
+
+        {/* TAB 10: CUSTOMER REVIEWS & MODERATION */}
+        {tab === "reviews" && (
+          <ReviewsModerationManager
+            reviews={reviewsList}
+            products={products}
+            onModerate={(reviewId, action, data) =>
+              moderateReviewMutation.mutate({ reviewId, action, data })
+            }
+            onAddManualReview={(review) => addManualReviewMutation.mutate(review)}
+            onSaveAllReviews={(updated) =>
+              saveSettingMutation.mutate({ key: "customer_reviews", value: updated })
             }
           />
         )}
@@ -1944,7 +2012,31 @@ function ProductsManager({
                       />
                       <div>
                         <p className="font-semibold text-sm">{product.name}</p>
-                        <p className="font-mono text-xs text-muted-foreground">/{product.slug}</p>
+                        <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                          <span className="font-mono text-xs text-muted-foreground">/{product.slug}</span>
+                          <span className="rounded-md bg-surface px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground border flex items-center gap-1">
+                            📷 {Array.isArray(product.images) ? product.images.length : 1}
+                          </span>
+                          {product.variants?.colors && Array.isArray(product.variants.colors) && product.variants.colors.length > 0 && (
+                            <div className="flex items-center gap-1 bg-surface px-1.5 py-0.5 rounded-md border" title={`${product.variants.colors.length} color swatches`}>
+                              {product.variants.colors.slice(0, 3).map((c: any, ci: number) => (
+                                <span
+                                  key={ci}
+                                  className="h-2 w-2 rounded-full border border-black/20 shrink-0"
+                                  style={{ backgroundColor: c.hex }}
+                                />
+                              ))}
+                              {product.variants.colors.length > 3 && (
+                                <span className="text-[9px] font-mono text-muted-foreground">+{product.variants.colors.length - 3}</span>
+                              )}
+                            </div>
+                          )}
+                          {product.variants?.sizes && Array.isArray(product.variants.sizes) && product.variants.sizes.length > 0 && (
+                            <span className="rounded-md bg-surface px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground border">
+                              {product.variants.sizes.length} {product.variants.variantType || "opts"}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </td>
@@ -2081,13 +2173,75 @@ function ProductFormDialog({
   const [lowStockThreshold, setLowStockThreshold] = useState(
     Number(initial?.low_stock_threshold ?? 3),
   );
-  const initialImg = initial?.images?.[0] ?? "headphones";
-  const isInitialCustom = initialImg.startsWith("http") || initialImg.startsWith("data:");
-  const [selectedImage, setSelectedImage] = useState(isInitialCustom ? "" : initialImg);
-  const [customImageUrl, setCustomImageUrl] = useState(isInitialCustom ? initialImg : "");
-  const [isUploading, setIsUploading] = useState(false);
 
-  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+  // 1. MULTI-IMAGE GALLERY STATE
+  const initialImages: string[] =
+    Array.isArray(initial?.images) && initial.images.length > 0
+      ? initial.images
+      : ["headphones"];
+  const [galleryImages, setGalleryImages] = useState<string[]>(initialImages);
+  const [newCustomImageUrl, setNewCustomImageUrl] = useState("");
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadingForColorIdx, setUploadingForColorIdx] = useState<number | null>(null);
+
+  // Helper function to read file to base64
+  function readFileAsBase64(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const resultStr = reader.result as string;
+        const base64 = resultStr.includes(",") ? resultStr.split(",")[1] : resultStr;
+        resolve(base64);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  // Handle multiple or single file uploads to product gallery
+  async function handleGalleryFilesUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    setIsUploading(true);
+    let successCount = 0;
+    try {
+      const uploadedUrls: string[] = [];
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        if (file.size > 5 * 1024 * 1024) {
+          toast.error(`File "${file.name}" exceeds 5MB limit`);
+          continue;
+        }
+        const base64 = await readFileAsBase64(file);
+        const res = await uploadProductImage({
+          data: {
+            fileName: file.name,
+            contentType: file.type || "image/jpeg",
+            base64Data: base64,
+          },
+        });
+        uploadedUrls.push(res.publicUrl);
+        successCount++;
+      }
+      if (uploadedUrls.length > 0) {
+        setGalleryImages((prev) => [...prev, ...uploadedUrls]);
+        toast.success(`Added ${successCount} photo${successCount > 1 ? "s" : ""} to gallery!`);
+      }
+    } catch (err: any) {
+      console.error("Gallery upload error:", err);
+      toast.error(err.message || "Failed to upload photo");
+    } finally {
+      setIsUploading(false);
+      e.target.value = "";
+    }
+  }
+
+  // Handle dedicated upload for a specific color swatch
+  async function handleColorPhotoUpload(
+    colorIdx: number,
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -2096,38 +2250,151 @@ function ProductFormDialog({
       return;
     }
 
-    setIsUploading(true);
-    const reader = new FileReader();
-    reader.onload = async () => {
-      try {
-        const resultStr = reader.result as string;
-        const base64 = resultStr.includes(",") ? resultStr.split(",")[1] : resultStr;
-        const res = await uploadProductImage({
-          data: {
-            fileName: file.name,
-            contentType: file.type || "image/jpeg",
-            base64Data: base64,
-          },
-        });
+    setUploadingForColorIdx(colorIdx);
+    try {
+      const base64 = await readFileAsBase64(file);
+      const res = await uploadProductImage({
+        data: {
+          fileName: file.name,
+          contentType: file.type || "image/jpeg",
+          base64Data: base64,
+        },
+      });
 
-        setCustomImageUrl(res.publicUrl);
-        setSelectedImage("");
-        toast.success("Image uploaded to Supabase Storage!");
-      } catch (err: any) {
-        console.error("Storage upload failed:", err);
-        toast.error(err.message || "Failed to upload to Supabase Storage");
-      } finally {
-        setIsUploading(false);
-        e.target.value = "";
-      }
-    };
-    reader.onerror = () => {
-      toast.error("Failed to read image file");
-      setIsUploading(false);
+      // Update color's image
+      setColors((prev) => {
+        const copy = [...prev];
+        copy[colorIdx] = { ...copy[colorIdx], image: res.publicUrl };
+        return copy;
+      });
+
+      // Ensure it is in the gallery images if not already
+      setGalleryImages((prev) => {
+        if (!prev.includes(res.publicUrl)) {
+          return [...prev, res.publicUrl];
+        }
+        return prev;
+      });
+
+      toast.success(`Photo assigned to "${colors[colorIdx]?.name || "Color"}"!`);
+    } catch (err: any) {
+      console.error("Color photo upload failed:", err);
+      toast.error(err.message || "Failed to upload color photo");
+    } finally {
+      setUploadingForColorIdx(null);
       e.target.value = "";
-    };
-    reader.readAsDataURL(file);
+    }
   }
+
+  function handleMakeCover(idx: number) {
+    if (idx === 0) return;
+    setGalleryImages((prev) => {
+      const target = prev[idx];
+      const remainder = prev.filter((_, i) => i !== idx);
+      return [target, ...remainder];
+    });
+    toast.success("Cover photo updated!");
+  }
+
+  function handleMoveImage(idx: number, dir: -1 | 1) {
+    const target = idx + dir;
+    if (target < 0 || target >= galleryImages.length) return;
+    setGalleryImages((prev) => {
+      const copy = [...prev];
+      const temp = copy[idx];
+      copy[idx] = copy[target];
+      copy[target] = temp;
+      return copy;
+    });
+  }
+
+  function handleRemoveGalleryImage(idx: number) {
+    if (galleryImages.length <= 1) {
+      toast.error("Catalogue product must have at least 1 image");
+      return;
+    }
+    const removedImg = galleryImages[idx];
+    setGalleryImages((prev) => prev.filter((_, i) => i !== idx));
+
+    // If any color had this image assigned, clear it
+    setColors((prev) =>
+      prev.map((c) => (c.image === removedImg ? { ...c, image: undefined } : c)),
+    );
+    toast.success("Removed image from gallery");
+  }
+
+  function handleAddPresetToGallery(key: string) {
+    setGalleryImages((prev) => [...prev, key]);
+    toast.success(`Added preset "${key}" to gallery!`);
+  }
+
+  function handleAddCustomUrl() {
+    const trimmed = newCustomImageUrl.trim();
+    if (!trimmed) return;
+    setGalleryImages((prev) => [...prev, trimmed]);
+    setNewCustomImageUrl("");
+    toast.success("Added photo URL to gallery!");
+  }
+
+  // 2. PRODUCT VARIATIONS (Colors, Size/Unit Dropdown, and In-The-Box)
+  const initialVariants =
+    initial?.variants && typeof initial.variants === "object" ? initial.variants : {};
+  const [variantType, setVariantType] = useState<string>(initialVariants.variantType || "Size");
+  const [colors, setColors] = useState<Array<{ name: string; hex: string; image?: string }>>(
+    Array.isArray(initialVariants.colors) ? initialVariants.colors : [],
+  );
+  const [sizes, setSizes] = useState<
+    Array<{ name: string; extraPrice: number; stock: number; specsNote?: string }>
+  >(
+    Array.isArray(initialVariants.sizes)
+      ? initialVariants.sizes.map((s: any) => ({
+          name: s.name || "",
+          extraPrice: Number(s.extraPrice) || 0,
+          stock: Number(s.stock ?? initial?.stock ?? 15),
+          specsNote: s.specsNote || "",
+        }))
+      : [],
+  );
+
+  // 3. IN-THE-BOX LIST BUILDER
+  const [inBox, setInBox] = useState<string[]>(
+    Array.isArray(initialVariants.inBox) && initialVariants.inBox.length > 0
+      ? initialVariants.inBox
+      : [],
+  );
+  const [newInBoxItem, setNewInBoxItem] = useState("");
+
+  const COMMON_IN_BOX_PRESETS = [
+    "Braided USB-C Cable (1.2m)",
+    "Protective Carry Pouch",
+    "Quick Start Guide",
+    "Official 1-Year Warranty Card",
+    "Replacement Silicone Tips (S/M/L)",
+    "Fast 65W Power Adapter",
+    "2.4GHz Wireless Nano Receiver",
+    "Keycap & Switch Puller Tool",
+  ];
+
+  function handleAddInBoxPreset(preset: string) {
+    if (inBox.includes(preset)) {
+      toast("Item already in the box list");
+      return;
+    }
+    setInBox((prev) => [...prev, preset]);
+  }
+
+  function handleAddCustomInBox() {
+    const val = newInBoxItem.trim();
+    if (!val) return;
+    if (inBox.includes(val)) {
+      toast("Item already in the box list");
+      return;
+    }
+    setInBox((prev) => [...prev, val]);
+    setNewInBoxItem("");
+  }
+
+  // Features
   const [featuresText, setFeaturesText] = useState(
     Array.isArray(initial?.features) ? initial.features.join("\n") : "",
   );
@@ -2143,17 +2410,6 @@ function ProductFormDialog({
   const [specsList, setSpecsList] = useState<Array<{ key: string; value: string }>>(
     initialSpecsList,
   );
-
-  // Product Variations (Colors & Size/Unit Dropdown)
-  const initialVariants =
-    initial?.variants && typeof initial.variants === "object" ? initial.variants : {};
-  const [variantType, setVariantType] = useState<string>(initialVariants.variantType || "Size");
-  const [colors, setColors] = useState<Array<{ name: string; hex: string; image?: string }>>(
-    Array.isArray(initialVariants.colors) ? initialVariants.colors : [],
-  );
-  const [sizes, setSizes] = useState<
-    Array<{ name: string; extraPrice: number; specsNote?: string }>
-  >(Array.isArray(initialVariants.sizes) ? initialVariants.sizes : []);
 
   const [published, setPublished] = useState(initial?.published ?? true);
   const [featured, setFeatured] = useState(initial?.featured ?? false);
@@ -2179,16 +2435,21 @@ function ProductFormDialog({
       .map((s) => ({
         name: s.name.trim(),
         extraPrice: Number(s.extraPrice) || 0,
+        stock: Number(s.stock) >= 0 ? Number(s.stock) : Number(stock),
         specsNote: s.specsNote?.trim() || undefined,
       }));
+
+    const cleanInBox = inBox.map((i) => i.trim()).filter(Boolean);
 
     const finalVariants = {
       colors: cleanColors,
       variantType: variantType.trim() || "Size",
       sizes: cleanSizes,
+      inBox: cleanInBox,
     };
 
-    const imageToUse = customImageUrl.trim() ? customImageUrl.trim() : selectedImage;
+    const finalImages = galleryImages.length > 0 ? galleryImages : ["headphones"];
+
     const features = featuresText
       .split("\n")
       .map((s) => s.trim())
@@ -2207,7 +2468,7 @@ function ProductFormDialog({
       sale_price: salePrice ? Number(salePrice) : null,
       stock: Number(stock),
       low_stock_threshold: Number(lowStockThreshold),
-      images: [imageToUse],
+      images: finalImages,
       specs: parsedSpecs,
       variants: finalVariants,
       features,
@@ -2218,16 +2479,28 @@ function ProductFormDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/50 p-4 backdrop-blur-xs overflow-y-auto">
-      <div className="w-full max-w-2xl rounded-3xl bg-background p-6 md:p-8 shadow-2xl my-8 max-h-[90vh] overflow-y-auto">
-        <h3 className="text-xl font-bold">{initial ? "Edit Product" : "Add New Product"}</h3>
-        <p className="text-xs text-muted-foreground mt-0.5">
-          Provide complete storefront copy, specs, pricing, and visual imagery.
-        </p>
+      <div className="w-full max-w-3xl rounded-3xl bg-background p-6 md:p-8 shadow-2xl my-8 max-h-[92vh] overflow-y-auto">
+        <div className="flex items-start justify-between">
+          <div>
+            <h3 className="text-xl font-bold">{initial ? "Edit Product" : "Add New Product"}</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Configure storefront copy, multi-image gallery, color swatches, size tiers, and packaging specs.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="press rounded-full p-2 text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
 
-        <div className="mt-6 space-y-4 text-xs">
+        <div className="mt-6 space-y-5 text-xs">
+          {/* Basic Identity */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="font-mono uppercase text-muted-foreground">Product Name</label>
+              <label className="font-mono uppercase text-muted-foreground font-bold">Product Name</label>
               <input
                 value={name}
                 onChange={(e) => {
@@ -2237,11 +2510,11 @@ function ProductFormDialog({
                   }
                 }}
                 placeholder="e.g. Surge GaN Charger"
-                className="mt-1 h-10 w-full rounded-xl bg-surface px-3 text-sm outline-none ring-primary focus:ring-2"
+                className="mt-1 h-10 w-full rounded-xl bg-surface px-3 text-sm outline-none ring-primary focus:ring-2 font-medium"
               />
             </div>
             <div>
-              <label className="font-mono uppercase text-muted-foreground">Slug</label>
+              <label className="font-mono uppercase text-muted-foreground font-bold">Slug</label>
               <input
                 value={slug}
                 onChange={(e) => setSlug(e.target.value)}
@@ -2253,25 +2526,25 @@ function ProductFormDialog({
 
           <div className="grid grid-cols-3 gap-3">
             <div>
-              <label className="font-mono uppercase text-muted-foreground">SKU Code</label>
+              <label className="font-mono uppercase text-muted-foreground font-bold">SKU Code</label>
               <input
                 value={sku}
                 onChange={(e) => setSku(e.target.value)}
                 placeholder="e.g. GBZ-PWR-003"
-                className="mt-1 h-10 w-full rounded-xl bg-surface px-3 font-mono text-sm uppercase outline-none ring-primary focus:ring-2"
+                className="mt-1 h-10 w-full rounded-xl bg-surface px-3 font-mono text-sm uppercase outline-none ring-primary focus:ring-2 font-bold"
               />
             </div>
             <div>
-              <label className="font-mono uppercase text-muted-foreground">Brand</label>
+              <label className="font-mono uppercase text-muted-foreground font-bold">Brand</label>
               <input
                 value={brand}
                 onChange={(e) => setBrand(e.target.value)}
                 placeholder="e.g. Gubberz"
-                className="mt-1 h-10 w-full rounded-xl bg-surface px-3 text-sm outline-none ring-primary focus:ring-2"
+                className="mt-1 h-10 w-full rounded-xl bg-surface px-3 text-sm outline-none ring-primary focus:ring-2 font-medium"
               />
             </div>
             <div>
-              <label className="font-mono uppercase text-muted-foreground">Category</label>
+              <label className="font-mono uppercase text-muted-foreground font-bold">Category</label>
               <select
                 value={categoryId}
                 onChange={(e) => setCategoryId(e.target.value)}
@@ -2289,35 +2562,35 @@ function ProductFormDialog({
 
           <div className="grid grid-cols-4 gap-3">
             <div>
-              <label className="font-mono uppercase text-muted-foreground">Price (PKR)</label>
+              <label className="font-mono uppercase text-muted-foreground font-bold">Price (PKR)</label>
               <input
                 type="number"
                 value={price}
                 onChange={(e) => setPrice(Number(e.target.value))}
-                className="mt-1 h-10 w-full rounded-xl bg-surface px-3 font-mono text-sm outline-none ring-primary focus:ring-2"
+                className="mt-1 h-10 w-full rounded-xl bg-surface px-3 font-mono text-sm outline-none ring-primary focus:ring-2 font-bold"
               />
             </div>
             <div>
-              <label className="font-mono uppercase text-muted-foreground">Sale Price (PKR)</label>
+              <label className="font-mono uppercase text-muted-foreground font-bold">Sale Price (PKR)</label>
               <input
                 type="number"
                 value={salePrice}
                 onChange={(e) => setSalePrice(e.target.value)}
                 placeholder="Optional"
-                className="mt-1 h-10 w-full rounded-xl bg-surface px-3 font-mono text-sm outline-none ring-primary focus:ring-2"
+                className="mt-1 h-10 w-full rounded-xl bg-surface px-3 font-mono text-sm outline-none ring-primary focus:ring-2 font-bold text-primary"
               />
             </div>
             <div>
-              <label className="font-mono uppercase text-muted-foreground">Stock Count</label>
+              <label className="font-mono uppercase text-muted-foreground font-bold">Stock Count</label>
               <input
                 type="number"
                 value={stock}
                 onChange={(e) => setStock(Number(e.target.value))}
-                className="mt-1 h-10 w-full rounded-xl bg-surface px-3 font-mono text-sm outline-none ring-primary focus:ring-2"
+                className="mt-1 h-10 w-full rounded-xl bg-surface px-3 font-mono text-sm outline-none ring-primary focus:ring-2 font-bold"
               />
             </div>
             <div>
-              <label className="font-mono uppercase text-muted-foreground">
+              <label className="font-mono uppercase text-muted-foreground font-bold">
                 Low Alert Threshold
               </label>
               <input
@@ -2329,202 +2602,231 @@ function ProductFormDialog({
             </div>
           </div>
 
-          {/* Image Selection & Supabase Storage Upload */}
-          <div className="rounded-2xl border bg-surface/40 p-4 space-y-3">
-            <div className="flex items-center justify-between">
+          {/* ========================================================= */}
+          {/* 1. MULTI-IMAGE GALLERY MANAGER (PHASE 3)                   */}
+          {/* ========================================================= */}
+          <div className="rounded-2xl border border-primary/30 bg-primary/5 p-4.5 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
-                <label className="font-mono uppercase text-muted-foreground font-bold">
-                  Product Image Asset
-                </label>
-                <p className="text-[11px] text-muted-foreground">
-                  Upload directly to Supabase Storage, pick a bundled preset, or link an external URL.
+                <div className="flex items-center gap-2">
+                  <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold text-xs">
+                    1
+                  </span>
+                  <h4 className="font-bold text-sm uppercase tracking-wider text-foreground flex items-center gap-2">
+                    <ImageIcon className="h-4 w-4 text-primary" /> Product Gallery & Visual Assets
+                  </h4>
+                </div>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  Order photos, designate the primary cover image, and upload multi-angle studio shots.
                 </p>
               </div>
-              {(customImageUrl || selectedImage) && (
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-mono text-muted-foreground">Preview:</span>
-                  <img
-                    src={imageSrc(customImageUrl || selectedImage)}
-                    alt="Preview"
-                    className="h-10 w-10 rounded-lg object-cover border"
+
+              <div className="flex items-center gap-2">
+                <span className="rounded-full bg-primary/15 px-2.5 py-0.5 font-mono text-xs font-bold text-primary">
+                  {galleryImages.length} {galleryImages.length === 1 ? "Photo" : "Photos"}
+                </span>
+                <label
+                  className={`press cursor-pointer inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold ${
+                    isUploading
+                      ? "bg-muted text-muted-foreground pointer-events-none"
+                      : "bg-primary text-primary-foreground hover:brightness-110 shadow-xs"
+                  }`}
+                >
+                  {isUploading ? (
+                    <>
+                      <RefreshCw className="h-3.5 w-3.5 animate-spin" /> Uploading…
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="h-3.5 w-3.5" /> Upload Photos
+                    </>
+                  )}
+                  <input
+                    type="file"
+                    multiple
+                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    onChange={handleGalleryFilesUpload}
+                    disabled={isUploading}
+                    className="hidden"
                   />
-                </div>
-              )}
-            </div>
-
-            {/* Direct File Upload to Supabase Storage */}
-            <div className="rounded-xl border border-dashed p-3 bg-background/50 flex flex-col sm:flex-row items-center justify-between gap-3">
-              <div className="flex items-center gap-2 text-xs">
-                <Upload className="h-4 w-4 text-primary shrink-0" />
-                <div>
-                  <p className="font-medium">Upload to Supabase Storage</p>
-                  <p className="text-[10px] text-muted-foreground">
-                    Saves to <code className="font-mono">product-images</code> bucket (max 5MB, JPG/PNG/WebP)
-                  </p>
-                </div>
+                </label>
               </div>
-              <label
-                className={`press cursor-pointer inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold ${
-                  isUploading
-                    ? "bg-muted text-muted-foreground pointer-events-none"
-                    : "bg-ink text-ink-foreground hover:bg-ink/90"
-                }`}
-              >
-                {isUploading ? (
-                  <>
-                    <RefreshCw className="h-3 w-3 animate-spin" /> Uploading…
-                  </>
-                ) : (
-                  <>
-                    <Upload className="h-3 w-3" /> Select File
-                  </>
-                )}
-                <input
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp,image/gif"
-                  onChange={handleFileUpload}
-                  disabled={isUploading}
-                  className="hidden"
-                />
-              </label>
             </div>
 
-            {/* Bundled Presets */}
-            <div>
-              <span className="font-mono text-[10px] uppercase text-muted-foreground">
-                Or Select Bundled Preset Asset:
+            {/* Gallery Cards Grid with Order Controls & Cover Tag */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+              {galleryImages.map((imgKey, idx) => {
+                const isCover = idx === 0;
+                return (
+                  <div
+                    key={`${imgKey}-${idx}`}
+                    className={`relative rounded-2xl border p-2 bg-background flex flex-col justify-between transition-all ${
+                      isCover
+                        ? "border-primary ring-2 ring-primary/40 shadow-sm"
+                        : "border-border/70 hover:border-foreground/30"
+                    }`}
+                  >
+                    {/* Index & Cover Badge */}
+                    <div className="flex items-center justify-between pb-1.5">
+                      <span className="font-mono text-[10px] font-bold text-muted-foreground">
+                        #{idx + 1}
+                      </span>
+                      {isCover ? (
+                        <span className="rounded-full bg-primary px-2 py-0.5 font-mono text-[9px] font-extrabold text-primary-foreground uppercase tracking-wider flex items-center gap-1">
+                          <Star className="h-2.5 w-2.5 fill-current" /> Cover
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleMakeCover(idx)}
+                          className="press text-[10px] font-semibold text-primary hover:underline flex items-center gap-0.5"
+                          title="Set as primary cover photo"
+                        >
+                          <Star className="h-3 w-3" /> Make Cover
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Image Preview Thumbnail */}
+                    <div className="relative aspect-square w-full rounded-xl overflow-hidden bg-surface flex items-center justify-center p-2 border border-border/40">
+                      <img
+                        src={imageSrc(imgKey)}
+                        alt={`Gallery ${idx + 1}`}
+                        className="max-h-full max-w-full object-contain mix-blend-multiply"
+                      />
+                    </div>
+
+                    {/* Image Key or URL snippet */}
+                    <div className="pt-1.5 pb-1">
+                      <p className="font-mono text-[10px] text-muted-foreground truncate" title={imgKey}>
+                        {imgKey.startsWith("http") ? imgKey.split("/").pop() || imgKey : imgKey}
+                      </p>
+                    </div>
+
+                    {/* Reorder and Delete Toolbar */}
+                    <div className="flex items-center justify-between border-t border-border/50 pt-1.5 mt-0.5">
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          disabled={idx === 0}
+                          onClick={() => handleMoveImage(idx, -1)}
+                          className="press h-6 w-6 rounded-md flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-20 cursor-pointer"
+                          title="Move left"
+                        >
+                          <ArrowLeft className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          disabled={idx === galleryImages.length - 1}
+                          onClick={() => handleMoveImage(idx, 1)}
+                          className="press h-6 w-6 rounded-md flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-20 cursor-pointer"
+                          title="Move right"
+                        >
+                          <ArrowRight className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveGalleryImage(idx)}
+                        disabled={galleryImages.length <= 1}
+                        className="press h-6 w-6 rounded-md flex items-center justify-center text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-20 cursor-pointer"
+                        title="Remove photo from gallery"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Quick-Add from Bundled Preset Icons */}
+            <div className="rounded-xl bg-background/80 border p-3 space-y-2">
+              <span className="font-mono text-[10px] uppercase text-muted-foreground font-bold flex items-center gap-1">
+                <Sparkles className="h-3 w-3 text-primary" /> Quick Add Bundled Studio Presets:
               </span>
-              <div className="grid grid-cols-4 sm:grid-cols-8 gap-2 pt-1.5">
+              <div className="flex flex-wrap gap-1.5">
                 {PRESET_IMAGE_KEYS.map((key) => (
                   <button
                     type="button"
                     key={key}
-                    onClick={() => {
-                      setSelectedImage(key);
-                      setCustomImageUrl("");
-                    }}
-                    className={`press relative rounded-xl border p-1 transition-all ${
-                      selectedImage === key && !customImageUrl
-                        ? "border-primary ring-2 ring-primary bg-primary/10"
-                        : "bg-surface hover:bg-muted"
-                    }`}
+                    onClick={() => handleAddPresetToGallery(key)}
+                    className="press flex items-center gap-1.5 rounded-lg border bg-surface px-2.5 py-1 text-[11px] font-mono hover:border-primary hover:text-primary transition-colors"
                   >
-                    <img
-                      src={imageSrc(key)}
-                      alt={key}
-                      className="h-10 w-full object-cover rounded-lg"
-                    />
-                    <span className="block text-center font-mono text-[9px] uppercase mt-1 truncate">
-                      {key}
-                    </span>
+                    <img src={imageSrc(key)} alt={key} className="h-3.5 w-3.5 object-cover rounded" />
+                    <span>+{key}</span>
                   </button>
                 ))}
               </div>
             </div>
 
-            {/* Custom URL Input */}
-            <div>
-              <label className="font-mono text-[10px] uppercase text-muted-foreground">
-                Or Custom / Supabase Storage URL
-              </label>
-              <div className="flex gap-2 mt-1">
-                <input
-                  value={customImageUrl}
-                  onChange={(e) => {
-                    setCustomImageUrl(e.target.value);
-                    if (e.target.value) setSelectedImage("");
-                  }}
-                  placeholder="https://...supabase.co/storage/v1/object/public/product-images/..."
-                  className="h-9 flex-1 rounded-xl bg-background px-3 font-mono text-xs outline-none ring-primary focus:ring-2"
-                />
-                {customImageUrl && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCustomImageUrl("");
-                      setSelectedImage("headphones");
-                    }}
-                    className="press rounded-xl px-2.5 py-1 text-xs bg-muted text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                  >
-                    Reset
-                  </button>
-                )}
-              </div>
+            {/* Add Custom URL to Gallery */}
+            <div className="flex gap-2">
+              <input
+                value={newCustomImageUrl}
+                onChange={(e) => setNewCustomImageUrl(e.target.value)}
+                placeholder="Add external or Supabase Storage image URL (https://...)"
+                className="h-9 flex-1 rounded-xl bg-background px-3 font-mono text-xs outline-none ring-primary focus:ring-2 border"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleAddCustomUrl();
+                  }
+                }}
+              />
+              <button
+                type="button"
+                onClick={handleAddCustomUrl}
+                disabled={!newCustomImageUrl.trim()}
+                className="press rounded-xl bg-surface px-3.5 py-1.5 font-bold text-xs hover:bg-muted disabled:opacity-40 border"
+              >
+                + Add URL
+              </button>
             </div>
           </div>
 
-          <div>
-            <label className="font-mono uppercase text-muted-foreground">
-              Short Description (Tagline)
-            </label>
-            <input
-              value={shortDesc}
-              onChange={(e) => setShortDesc(e.target.value)}
-              placeholder="e.g. 65W GaN fast charger with 3 ports"
-              className="mt-1 h-10 w-full rounded-xl bg-surface px-3 text-sm outline-none ring-primary focus:ring-2"
-            />
-          </div>
-
-          <div>
-            <label className="font-mono uppercase text-muted-foreground">Full Description</label>
-            <textarea
-              rows={3}
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Detailed editorial copy about materials, experience, and benefits…"
-              className="mt-1 w-full rounded-xl bg-surface p-3 text-sm outline-none ring-primary focus:ring-2"
-            />
-          </div>
-
-          <div>
-            <label className="font-mono uppercase text-muted-foreground">
-              Key Features (1 per line)
-            </label>
-            <textarea
-              rows={3}
-              value={featuresText}
-              onChange={(e) => setFeaturesText(e.target.value)}
-              placeholder="Active noise cancelling&#10;40h battery life&#10;Fold-flat hinge"
-              className="mt-1 w-full rounded-xl bg-surface p-3 font-mono text-xs outline-none ring-primary focus:ring-2"
-            />
-          </div>
-
           {/* ========================================================= */}
-          {/* PRODUCT VARIATIONS: ON TOP OF SPECIFICATIONS              */}
+          {/* 2. COLOR VARIANTS WITH PHOTO PICKER (PHASE 3)             */}
           {/* ========================================================= */}
-          <div className="rounded-2xl border border-border/80 bg-surface/30 p-4 space-y-4">
-            {/* 1. Color Swatches */}
-            <div>
-              <div className="flex items-center justify-between">
-                <div>
-                  <h4 className="font-bold text-xs uppercase tracking-wider text-foreground">
-                    Color Variants (Buttons in Image Box)
+          <div className="rounded-2xl border border-border/80 bg-surface/30 p-4.5 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-foreground text-background font-bold text-xs">
+                    2
+                  </span>
+                  <h4 className="font-bold text-sm uppercase tracking-wider text-foreground">
+                    Color Variants & Photo Assignment
                   </h4>
-                  <p className="text-[11px] text-muted-foreground">
-                    Interactive swatches (Torras & Apple style) that switch the product photo.
-                  </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setColors([...colors, { name: "", hex: "#1f2123", image: "" }])}
-                  className="press text-xs font-bold text-primary flex items-center gap-1 hover:underline"
-                >
-                  <Plus className="h-3.5 w-3.5" /> Add Color
-                </button>
-              </div>
-
-              {colors.length === 0 ? (
-                <p className="mt-2 text-[11px] text-muted-foreground italic">
-                  No color variants added. Leave empty for standard single edition.
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  Interactive swatches (Apple & Torras style). Each color swatch switches the hero photo when clicked.
                 </p>
-              ) : (
-                <div className="mt-2 space-y-2">
-                  {colors.map((c, idx) => (
-                    <div
-                      key={idx}
-                      className="flex flex-wrap items-center gap-2 rounded-xl bg-surface p-2 border border-border/40"
-                    >
-                      <div className="flex items-center gap-2 shrink-0">
+              </div>
+              <button
+                type="button"
+                onClick={() => setColors([...colors, { name: "", hex: "#1f2123", image: "" }])}
+                className="press rounded-xl bg-surface px-3 py-1.5 text-xs font-bold text-primary flex items-center gap-1 hover:bg-muted border border-primary/30"
+              >
+                <Plus className="h-3.5 w-3.5" /> Add Color Swatch
+              </button>
+            </div>
+
+            {colors.length === 0 ? (
+              <div className="rounded-xl border border-dashed p-3.5 text-center text-[11px] text-muted-foreground">
+                No color variants configured. The single standard cover photo will be displayed.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {colors.map((c, idx) => (
+                  <div
+                    key={idx}
+                    className="rounded-2xl border border-border/60 bg-background p-3 space-y-3 shadow-2xs"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      {/* Color Picker & Name */}
+                      <div className="flex items-center gap-2.5">
                         <input
                           type="color"
                           value={c.hex}
@@ -2543,136 +2845,370 @@ function ProductFormDialog({
                             copy[idx].name = e.target.value;
                             setColors(copy);
                           }}
-                          placeholder="Color Name (e.g. Matte Black)"
-                          className="h-8 w-36 rounded-lg bg-background px-2.5 text-xs outline-none ring-primary focus:ring-2 font-medium"
+                          placeholder="Color Name (e.g. Sage Olive, Matte Black)"
+                          className="h-8.5 w-52 rounded-xl bg-surface px-3 text-xs outline-none ring-primary focus:ring-2 font-semibold"
                         />
+                        <span className="font-mono text-[10px] text-muted-foreground uppercase">{c.hex}</span>
                       </div>
-                      <input
-                        value={c.image || ""}
-                        onChange={(e) => {
-                          const copy = [...colors];
-                          copy[idx].image = e.target.value;
-                          setColors(copy);
-                        }}
-                        placeholder="Specific Image URL for this color (optional)"
-                        className="h-8 flex-1 min-w-[140px] rounded-lg bg-background px-2.5 text-xs font-mono outline-none ring-primary focus:ring-2"
-                      />
+
+                      {/* Remove Color Button */}
                       <button
                         type="button"
                         onClick={() => setColors(colors.filter((_, i) => i !== idx))}
-                        className="press text-muted-foreground hover:text-destructive p-1"
+                        className="press text-muted-foreground hover:text-destructive p-1 rounded-lg"
                         title="Remove Color"
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
 
-            {/* 2. Size / Unit Dropdown */}
-            <div className="pt-3 border-t">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <h4 className="font-bold text-xs uppercase tracking-wider text-foreground">
-                    Size / Unit Variant (Dropdown Selector)
-                  </h4>
-                  <p className="text-[11px] text-muted-foreground">
-                    Customer selects from a dropdown (e.g. S / M / L, 65W / 100W, 1m / 2m).
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <input
-                    value={variantType}
-                    onChange={(e) => setVariantType(e.target.value)}
-                    placeholder="Label (e.g. Size, Model, Length)"
-                    className="h-7 w-28 rounded-lg bg-surface px-2 text-xs font-mono font-medium outline-none ring-primary focus:ring-1"
-                    title="Variant property label"
-                  />
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setSizes([...sizes, { name: "", extraPrice: 0, specsNote: "" }])
-                    }
-                    className="press text-xs font-bold text-primary flex items-center gap-1 hover:underline"
-                  >
-                    <Plus className="h-3.5 w-3.5" /> Add Option
-                  </button>
-                </div>
-              </div>
+                    {/* Dedicated Photo Picker for this Color */}
+                    <div className="rounded-xl bg-surface/50 border p-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                      <div className="flex items-center gap-2.5">
+                        {/* Current Assigned Photo Thumbnail */}
+                        <div className="h-10 w-10 rounded-lg border bg-background flex items-center justify-center overflow-hidden shrink-0">
+                          {c.image ? (
+                            <img
+                              src={imageSrc(c.image)}
+                              alt={c.name || "Color"}
+                              className="h-full w-full object-contain"
+                            />
+                          ) : (
+                            <span className="text-[9px] font-mono text-muted-foreground text-center">
+                              Cover
+                            </span>
+                          )}
+                        </div>
 
-              {sizes.length === 0 ? (
-                <p className="mt-2 text-[11px] text-muted-foreground italic">
-                  No size or unit variants added. Standard pricing applies.
-                </p>
-              ) : (
-                <div className="mt-2 space-y-2">
-                  {sizes.map((s, idx) => (
-                    <div
-                      key={idx}
-                      className="flex flex-wrap items-center gap-2 rounded-xl bg-surface p-2 border border-border/40"
-                    >
-                      <input
-                        value={s.name}
-                        onChange={(e) => {
-                          const copy = [...sizes];
-                          copy[idx].name = e.target.value;
-                          setSizes(copy);
-                        }}
-                        placeholder="Option (e.g. Medium (M), 100W, 2m)"
-                        className="h-8 flex-1 min-w-[120px] rounded-lg bg-background px-2.5 text-xs outline-none ring-primary focus:ring-2 font-medium"
-                      />
-                      <div className="flex items-center gap-1 shrink-0">
-                        <span className="text-[11px] font-mono text-muted-foreground">+PKR:</span>
-                        <input
-                          type="number"
-                          value={s.extraPrice}
-                          onChange={(e) => {
-                            const copy = [...sizes];
-                            copy[idx].extraPrice = Number(e.target.value);
-                            setSizes(copy);
-                          }}
-                          placeholder="Extra Price"
-                          className="h-8 w-20 rounded-lg bg-background px-2 text-xs font-mono outline-none ring-primary focus:ring-2"
-                        />
+                        <div>
+                          <p className="font-medium text-[11px] text-foreground">
+                            {c.image ? "Specific Photo Linked" : "Uses Default Cover Photo"}
+                          </p>
+                          <p className="font-mono text-[10px] text-muted-foreground truncate max-w-[200px]">
+                            {c.image ? c.image : "No special image selected"}
+                          </p>
+                        </div>
                       </div>
-                      <input
-                        value={s.specsNote || ""}
-                        onChange={(e) => {
-                          const copy = [...sizes];
-                          copy[idx].specsNote = e.target.value;
-                          setSizes(copy);
-                        }}
-                        placeholder="Variant note (e.g. 50W output)"
-                        className="h-8 flex-1 min-w-[120px] rounded-lg bg-background px-2.5 text-xs outline-none ring-primary focus:ring-2"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setSizes(sizes.filter((_, i) => i !== idx))}
-                        className="press text-muted-foreground hover:text-destructive p-1"
-                        title="Remove Option"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
+
+                      <div className="flex items-center gap-2">
+                        {/* Pick from existing gallery images dropdown */}
+                        <select
+                          value={c.image || ""}
+                          onChange={(e) => {
+                            const copy = [...colors];
+                            copy[idx].image = e.target.value || undefined;
+                            setColors(copy);
+                          }}
+                          className="h-8 rounded-lg bg-background px-2.5 text-[11px] font-medium outline-none ring-primary focus:ring-1 border"
+                        >
+                          <option value="">Default Cover Photo</option>
+                          {galleryImages.map((img, imgIdx) => (
+                            <option key={`${img}-${imgIdx}`} value={img}>
+                              Gallery Photo #{imgIdx + 1} ({img.startsWith("http") ? "Storage" : img})
+                            </option>
+                          ))}
+                        </select>
+
+                        {/* Dedicated File Upload for this Color */}
+                        <label
+                          className={`press cursor-pointer inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-semibold border ${
+                            uploadingForColorIdx === idx
+                              ? "bg-muted text-muted-foreground pointer-events-none"
+                              : "bg-background hover:bg-muted text-foreground"
+                          }`}
+                        >
+                          {uploadingForColorIdx === idx ? (
+                            <RefreshCw className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <Upload className="h-3 w-3" />
+                          )}
+                          <span>Upload</span>
+                          <input
+                            type="file"
+                            accept="image/jpeg,image/png,image/webp,image/gif"
+                            onChange={(e) => handleColorPhotoUpload(idx, e)}
+                            disabled={uploadingForColorIdx === idx}
+                            className="hidden"
+                          />
+                        </label>
+
+                        {/* Clear button if image is set */}
+                        {c.image && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const copy = [...colors];
+                              copy[idx].image = undefined;
+                              setColors(copy);
+                            }}
+                            className="press text-muted-foreground hover:text-foreground text-[11px] underline px-1"
+                          >
+                            Reset
+                          </button>
+                        )}
+                      </div>
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* ========================================================= */}
-          {/* SPECIFICATIONS: 2 FIELDS IN A ROW, CAN BE LEFT EMPTY     */}
+          {/* 3. SIZE & OPTION VARIANTS WITH DELTA PRICING & STOCK      */}
           {/* ========================================================= */}
+          <div className="rounded-2xl border border-border/80 bg-surface/30 p-4.5 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-foreground text-background font-bold text-xs">
+                    3
+                  </span>
+                  <h4 className="font-bold text-sm uppercase tracking-wider text-foreground">
+                    Size, Wattage & Spec Options (Delta Pricing)
+                  </h4>
+                </div>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  Options dropdown (e.g. 65W vs 100W, S/M/L, 1.2m vs 2.0m) with extra PKR price and variant inventory stock.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <input
+                  value={variantType}
+                  onChange={(e) => setVariantType(e.target.value)}
+                  placeholder="Label (e.g. Size, Wattage, Model)"
+                  className="h-8 w-36 rounded-xl bg-background px-2.5 text-xs font-mono font-medium outline-none ring-primary focus:ring-1 border"
+                  title="Variant property label"
+                />
+                <button
+                  type="button"
+                  onClick={() =>
+                    setSizes([
+                      ...sizes,
+                      { name: "", extraPrice: 0, stock: Number(stock) || 15, specsNote: "" },
+                    ])
+                  }
+                  className="press rounded-xl bg-surface px-3 py-1.5 text-xs font-bold text-primary flex items-center gap-1 hover:bg-muted border border-primary/30"
+                >
+                  <Plus className="h-3.5 w-3.5" /> Add Option
+                </button>
+              </div>
+            </div>
+
+            {sizes.length === 0 ? (
+              <div className="rounded-xl border border-dashed p-3.5 text-center text-[11px] text-muted-foreground">
+                No size or spec options added. Base product price and main inventory stock apply.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {sizes.map((s, idx) => (
+                  <div
+                    key={idx}
+                    className="flex flex-wrap items-center gap-2 rounded-2xl bg-background p-3 border border-border/60 shadow-2xs"
+                  >
+                    <input
+                      value={s.name}
+                      onChange={(e) => {
+                        const copy = [...sizes];
+                        copy[idx].name = e.target.value;
+                        setSizes(copy);
+                      }}
+                      placeholder="Option Name (e.g. 100W GaN (4 Ports), 2.0 Metres, Pro Hard Case)"
+                      className="h-8.5 flex-1 min-w-[160px] rounded-xl bg-surface px-3 text-xs outline-none ring-primary focus:ring-2 font-semibold"
+                    />
+
+                    <div className="flex items-center gap-1.5 shrink-0 bg-surface px-2 py-1 rounded-xl border">
+                      <span className="text-[11px] font-mono font-bold text-muted-foreground">+PKR:</span>
+                      <input
+                        type="number"
+                        value={s.extraPrice}
+                        onChange={(e) => {
+                          const copy = [...sizes];
+                          copy[idx].extraPrice = Number(e.target.value);
+                          setSizes(copy);
+                        }}
+                        placeholder="0"
+                        className="h-7 w-20 rounded-lg bg-background px-2 text-xs font-mono font-bold outline-none ring-primary focus:ring-1"
+                      />
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0 bg-surface px-2 py-1 rounded-xl border">
+                      <span className="text-[11px] font-mono font-bold text-muted-foreground">Stock:</span>
+                      <input
+                        type="number"
+                        value={s.stock}
+                        onChange={(e) => {
+                          const copy = [...sizes];
+                          copy[idx].stock = Number(e.target.value);
+                          setSizes(copy);
+                        }}
+                        placeholder="15"
+                        className="h-7 w-16 rounded-lg bg-background px-2 text-xs font-mono font-bold outline-none ring-primary focus:ring-1"
+                      />
+                    </div>
+
+                    <input
+                      value={s.specsNote || ""}
+                      onChange={(e) => {
+                        const copy = [...sizes];
+                        copy[idx].specsNote = e.target.value;
+                        setSizes(copy);
+                      }}
+                      placeholder="Note (e.g. Includes braided 100W cable)"
+                      className="h-8.5 flex-1 min-w-[140px] rounded-xl bg-surface px-3 text-xs outline-none ring-primary focus:ring-2"
+                    />
+
+                    <button
+                      type="button"
+                      onClick={() => setSizes(sizes.filter((_, i) => i !== idx))}
+                      className="press text-muted-foreground hover:text-destructive p-1 rounded-lg"
+                      title="Remove Option"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* ========================================================= */}
+          {/* 4. IN-THE-BOX ACCESSORY BUILDER (PHASE 3)                  */}
+          {/* ========================================================= */}
+          <div className="rounded-2xl border border-border/80 bg-surface/30 p-4.5 space-y-3.5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-foreground text-background font-bold text-xs">
+                  4
+                </span>
+                <h4 className="font-bold text-sm uppercase tracking-wider text-foreground">
+                  What's in the Box (Packaging Contents)
+                </h4>
+              </div>
+              <span className="font-mono text-xs text-muted-foreground">
+                {inBox.length} {inBox.length === 1 ? "item" : "items"}
+              </span>
+            </div>
+
+            <p className="text-[11px] text-muted-foreground">
+              Shown to customers on the product page with checkmark badges so they know what cables, pouches, and accessories are included.
+            </p>
+
+            {/* In Box Items List */}
+            {inBox.length > 0 && (
+              <div className="space-y-1.5">
+                {inBox.map((item, idx) => (
+                  <div
+                    key={idx}
+                    className="flex items-center justify-between gap-2 rounded-xl bg-background px-3 py-1.5 border border-border/50 text-xs"
+                  >
+                    <span className="flex items-center gap-2 font-medium">
+                      <Check className="h-3.5 w-3.5 text-success" />
+                      {item}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setInBox(inBox.filter((_, i) => i !== idx))}
+                      className="press text-muted-foreground hover:text-destructive p-0.5"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Add Custom Item */}
+            <div className="flex gap-2">
+              <input
+                value={newInBoxItem}
+                onChange={(e) => setNewInBoxItem(e.target.value)}
+                placeholder="Add package item (e.g. Braided USB-C Cable (1.2m), Travel Pouch)"
+                className="h-9 flex-1 rounded-xl bg-background px-3 text-xs outline-none ring-primary focus:ring-2 border"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleAddCustomInBox();
+                  }
+                }}
+              />
+              <button
+                type="button"
+                onClick={handleAddCustomInBox}
+                disabled={!newInBoxItem.trim()}
+                className="press rounded-xl bg-surface px-3.5 py-1.5 font-bold text-xs hover:bg-muted disabled:opacity-40 border"
+              >
+                + Add Item
+              </button>
+            </div>
+
+            {/* Quick Suggestion Chips */}
+            <div className="pt-1">
+              <span className="text-[10px] font-mono uppercase text-muted-foreground font-bold">
+                Quick Presets:
+              </span>
+              <div className="flex flex-wrap gap-1.5 mt-1.5">
+                {COMMON_IN_BOX_PRESETS.map((p) => (
+                  <button
+                    type="button"
+                    key={p}
+                    onClick={() => handleAddInBoxPreset(p)}
+                    className="press rounded-lg border bg-surface/70 px-2.5 py-1 text-[10px] font-medium hover:border-primary hover:text-primary transition-colors"
+                  >
+                    +{p}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Editorial Descriptions */}
+          <div>
+            <label className="font-mono uppercase text-muted-foreground font-bold">
+              Short Description (Tagline)
+            </label>
+            <input
+              value={shortDesc}
+              onChange={(e) => setShortDesc(e.target.value)}
+              placeholder="e.g. 65W GaN fast charger with 3 ports"
+              className="mt-1 h-10 w-full rounded-xl bg-surface px-3 text-sm outline-none ring-primary focus:ring-2"
+            />
+          </div>
+
+          <div>
+            <label className="font-mono uppercase text-muted-foreground font-bold">Full Description</label>
+            <textarea
+              rows={3}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Detailed editorial copy about materials, experience, and benefits…"
+              className="mt-1 w-full rounded-xl bg-surface p-3 text-sm outline-none ring-primary focus:ring-2"
+            />
+          </div>
+
+          <div>
+            <label className="font-mono uppercase text-muted-foreground font-bold">
+              Key Features (1 per line)
+            </label>
+            <textarea
+              rows={3}
+              value={featuresText}
+              onChange={(e) => setFeaturesText(e.target.value)}
+              placeholder="Active noise cancelling&#10;40h battery life&#10;Fold-flat hinge"
+              className="mt-1 w-full rounded-xl bg-surface p-3 font-mono text-xs outline-none ring-primary focus:ring-2"
+            />
+          </div>
+
+          {/* Technical Specifications */}
           <div className="space-y-3 pt-2">
             <div className="flex items-center justify-between">
               <div>
                 <label className="font-mono uppercase text-muted-foreground text-xs font-bold">
-                  Specifications (Optional)
+                  Technical Specifications (Optional)
                 </label>
                 <p className="text-[11px] text-muted-foreground">
-                  Can be left empty. Enter property name (e.g. Watts) and value (e.g. 50).
+                  Can be left empty. Enter property name (e.g. Watts) and value (e.g. 65W).
                 </p>
               </div>
               <button
@@ -2726,16 +3262,17 @@ function ProductFormDialog({
             )}
           </div>
 
-          <div className="flex flex-wrap items-center gap-6 pt-2 border-t">
+          {/* Visibility and Featured Checkboxes */}
+          <div className="flex flex-wrap items-center gap-6 pt-3 border-t">
             <div className="flex items-center gap-2">
               <input
                 type="checkbox"
                 id="prod-published"
                 checked={published}
                 onChange={(e) => setPublished(e.target.checked)}
-                className="h-4 w-4 rounded accent-primary"
+                className="h-4 w-4 rounded accent-primary cursor-pointer"
               />
-              <label htmlFor="prod-published" className="font-medium cursor-pointer">
+              <label htmlFor="prod-published" className="font-semibold cursor-pointer">
                 Publish Product to storefront
               </label>
             </div>
@@ -2746,28 +3283,31 @@ function ProductFormDialog({
                 id="prod-featured"
                 checked={featured}
                 onChange={(e) => setFeatured(e.target.checked)}
-                className="h-4 w-4 rounded accent-primary"
+                className="h-4 w-4 rounded accent-primary cursor-pointer"
               />
-              <label htmlFor="prod-featured" className="font-medium cursor-pointer">
+              <label htmlFor="prod-featured" className="font-semibold cursor-pointer">
                 Feature on Homepage Curations ★
               </label>
             </div>
           </div>
         </div>
 
+        {/* Modal Action Buttons */}
         <div className="mt-6 flex justify-end gap-3 border-t pt-4">
           <button
+            type="button"
             onClick={onClose}
-            className="press rounded-full bg-surface px-5 py-2 text-xs font-semibold"
+            className="press rounded-full bg-surface px-5 py-2 text-xs font-semibold hover:bg-muted"
           >
             Cancel
           </button>
           <button
+            type="button"
             disabled={!name.trim() || !sku.trim()}
             onClick={handleSave}
-            className="press rounded-full bg-primary px-6 py-2 text-xs font-bold text-primary-foreground disabled:opacity-50"
+            className="press rounded-full bg-primary px-6 py-2 text-xs font-bold text-primary-foreground disabled:opacity-50 hover:brightness-110 shadow-xs"
           >
-            Save Product
+            Save Product & Variants
           </button>
         </div>
       </div>
@@ -4326,6 +4866,977 @@ function FlashSaleManager({
             </div>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
+// REVIEWS & TESTIMONIALS MODERATION MANAGER
+// ==========================================
+function ReviewsModerationManager({
+  reviews,
+  products,
+  onModerate,
+  onAddManualReview,
+}: {
+  reviews: StoredReview[];
+  products: any[];
+  onModerate: (
+    reviewId: string,
+    action: "toggle_status" | "toggle_featured" | "delete" | "update",
+    data?: any,
+  ) => void;
+  onAddManualReview: (review: any) => void;
+  onSaveAllReviews: (reviews: StoredReview[]) => void;
+}) {
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<
+    "all" | "approved" | "pending" | "hidden" | "pinned"
+  >("all");
+  const [cityFilter, setCityFilter] = useState("all");
+  const [ratingFilter, setRatingFilter] = useState<number | "all">("all");
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [editingReview, setEditingReview] = useState<StoredReview | null>(null);
+  const [zoomPhoto, setZoomPhoto] = useState<{ url: string; caption: string } | null>(null);
+
+  const approvedCount = reviews.filter((r) => r.status === "approved").length;
+  const pendingCount = reviews.filter((r) => r.status === "pending").length;
+  const hiddenCount = reviews.filter((r) => r.status === "hidden").length;
+  const pinnedCount = reviews.filter((r) => r.featuredOnHome).length;
+  const avgRating =
+    reviews.length > 0
+      ? (reviews.reduce((acc, r) => acc + r.rating, 0) / reviews.length).toFixed(1)
+      : "5.0";
+
+  const filtered = reviews.filter((r) => {
+    if (statusFilter === "approved" && r.status !== "approved") return false;
+    if (statusFilter === "pending" && r.status !== "pending") return false;
+    if (statusFilter === "hidden" && r.status !== "hidden") return false;
+    if (statusFilter === "pinned" && !r.featuredOnHome) return false;
+
+    if (cityFilter !== "all" && r.city.toLowerCase() !== cityFilter.toLowerCase()) {
+      return false;
+    }
+    if (ratingFilter !== "all" && r.rating !== ratingFilter) {
+      return false;
+    }
+
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      const match =
+        r.author.toLowerCase().includes(q) ||
+        r.city.toLowerCase().includes(q) ||
+        r.title.toLowerCase().includes(q) ||
+        r.comment.toLowerCase().includes(q) ||
+        r.productName.toLowerCase().includes(q) ||
+        r.productSlug.toLowerCase().includes(q);
+      if (!match) return false;
+    }
+
+    return true;
+  });
+
+  return (
+    <div className="space-y-6">
+      {/* HEADER & STATS */}
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+        <div>
+          <div className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 border border-primary/20 px-3 py-1 font-mono text-[10px] font-bold uppercase tracking-wider text-primary">
+            <Sparkles className="h-3 w-3 animate-pulse" />
+            Pakistani Buyer Testimonials Desk
+          </div>
+          <h2 className="mt-2 text-2xl font-extrabold tracking-tight">
+            Customer Reviews & Setup Moderation
+          </h2>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Approve customer reviews, pin real desk setup photos to the homepage showcase, and log verified WhatsApp feedback.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <Link
+            to="/reviews"
+            target="_blank"
+            className="press rounded-full bg-surface border border-border/80 px-4 py-2 text-xs font-semibold hover:bg-muted inline-flex items-center gap-1.5"
+          >
+            <span>View Public /reviews</span>
+            <ExternalLink className="h-3.5 w-3.5" />
+          </Link>
+          <button
+            onClick={() => setIsAddModalOpen(true)}
+            className="press rounded-full bg-ink px-5 py-2 text-xs font-bold text-ink-foreground hover:bg-primary transition-colors flex items-center gap-2 cursor-pointer shadow-sm"
+          >
+            <Plus className="h-4 w-4" />
+            <span>Add WhatsApp / Manual Review</span>
+          </button>
+        </div>
+      </div>
+
+      {/* STATS TILES */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-5 font-mono text-xs">
+        <div className="rounded-2xl border bg-surface/50 p-4 space-y-1">
+          <span className="text-[11px] text-muted-foreground uppercase">Total Reviews</span>
+          <p className="text-2xl font-black text-foreground">{reviews.length}</p>
+          <span className="text-[10px] text-muted-foreground">In database</span>
+        </div>
+        <div className="rounded-2xl border bg-surface/50 p-4 space-y-1">
+          <span className="text-[11px] text-muted-foreground uppercase">Approved</span>
+          <p className="text-2xl font-black text-emerald-600 dark:text-emerald-400">{approvedCount}</p>
+          <span className="text-[10px] text-muted-foreground">Visible on store</span>
+        </div>
+        <div className="rounded-2xl border bg-surface/50 p-4 space-y-1">
+          <span className="text-[11px] text-muted-foreground uppercase">Pending Review</span>
+          <p className={`text-2xl font-black ${pendingCount > 0 ? "text-amber-500" : "text-foreground"}`}>
+            {pendingCount}
+          </p>
+          <span className="text-[10px] text-muted-foreground">Awaiting approval</span>
+        </div>
+        <div className="rounded-2xl border bg-surface/50 p-4 space-y-1">
+          <span className="text-[11px] text-muted-foreground uppercase">Pinned on Home</span>
+          <p className="text-2xl font-black text-primary">{pinnedCount} / 3</p>
+          <span className="text-[10px] text-muted-foreground">Homepage showcase</span>
+        </div>
+        <div className="rounded-2xl border bg-surface/50 p-4 space-y-1">
+          <span className="text-[11px] text-muted-foreground uppercase">Avg Rating</span>
+          <p className="text-2xl font-black text-amber-500 flex items-center gap-1">
+            <span>{avgRating}</span>
+            <Star className="h-4 w-4 fill-current" />
+          </p>
+          <span className="text-[10px] text-muted-foreground">Pakistani buyers</span>
+        </div>
+      </div>
+
+      {/* FILTER CONTROLS */}
+      <div className="rounded-3xl border bg-card p-4 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          {/* Status Filter Tabs */}
+          <div className="flex flex-wrap gap-1 rounded-xl bg-surface p-1 text-xs font-mono">
+            {[
+              { id: "all", label: `All (${reviews.length})` },
+              { id: "approved", label: `Approved (${approvedCount})` },
+              { id: "pending", label: `Pending (${pendingCount})` },
+              { id: "hidden", label: `Hidden (${hiddenCount})` },
+              { id: "pinned", label: `Pinned to Home (${pinnedCount})` },
+            ].map((t) => (
+              <button
+                key={t.id}
+                onClick={() => setStatusFilter(t.id as any)}
+                className={`press rounded-lg px-3 py-1 font-semibold transition-colors cursor-pointer ${
+                  statusFilter === t.id
+                    ? "bg-foreground text-background font-bold shadow-xs"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Search Input */}
+          <div className="relative flex-1 min-w-[200px] max-w-xs">
+            <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search author, city, gadget…"
+              className="h-9 w-full rounded-xl bg-surface pl-8 pr-3 text-xs outline-none ring-primary focus:ring-2"
+            />
+            {search && (
+              <button
+                onClick={() => setSearch("")}
+                className="absolute right-2.5 top-2 text-xs text-muted-foreground hover:text-foreground"
+              >
+                ×
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Second Row: City & Rating Filters */}
+        <div className="flex flex-wrap items-center gap-4 pt-2 border-t text-xs font-mono">
+          <div className="flex items-center gap-2">
+            <span className="text-muted-foreground flex items-center gap-1">
+              <MapPin className="h-3 w-3 text-primary" /> City:
+            </span>
+            <select
+              value={cityFilter}
+              onChange={(e) => setCityFilter(e.target.value)}
+              className="rounded-lg border bg-surface px-2.5 py-1 text-xs cursor-pointer font-medium"
+            >
+              <option value="all">All Pakistani Cities</option>
+              <option value="Karachi">Karachi</option>
+              <option value="Lahore">Lahore</option>
+              <option value="Islamabad">Islamabad</option>
+              <option value="Rawalpindi">Rawalpindi</option>
+              <option value="Peshawar">Peshawar</option>
+              <option value="Faisalabad">Faisalabad</option>
+              <option value="Multan">Multan</option>
+              <option value="Quetta">Quetta</option>
+            </select>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="text-muted-foreground flex items-center gap-1">
+              <Star className="h-3 w-3 text-amber-500" /> Rating:
+            </span>
+            <select
+              value={ratingFilter}
+              onChange={(e) =>
+                setRatingFilter(e.target.value === "all" ? "all" : Number(e.target.value))
+              }
+              className="rounded-lg border bg-surface px-2.5 py-1 text-xs cursor-pointer font-medium"
+            >
+              <option value="all">All Star Ratings</option>
+              <option value="5">5 Stars Only</option>
+              <option value="4">4 Stars Only</option>
+              <option value="3">3 Stars Only</option>
+              <option value="2">2 Stars Only</option>
+              <option value="1">1 Star Only</option>
+            </select>
+          </div>
+
+          {(statusFilter !== "all" || cityFilter !== "all" || ratingFilter !== "all" || search) && (
+            <button
+              onClick={() => {
+                setStatusFilter("all");
+                setCityFilter("all");
+                setRatingFilter("all");
+                setSearch("");
+              }}
+              className="text-primary hover:underline ml-auto text-xs font-bold cursor-pointer"
+            >
+              Reset Filters
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* REVIEWS LIST */}
+      {filtered.length === 0 ? (
+        <div className="rounded-3xl border border-dashed p-12 text-center space-y-3">
+          <MessageSquare className="h-8 w-8 text-muted-foreground mx-auto" />
+          <h3 className="font-bold text-base">No customer reviews match your filter</h3>
+          <p className="text-xs text-muted-foreground max-w-sm mx-auto">
+            Try adjusting your search keywords, city filter, or status pill above.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {filtered.map((r) => (
+            <div
+              key={r.id}
+              className={`rounded-3xl border bg-card p-5 transition-all space-y-3.5 ${
+                r.status === "hidden"
+                  ? "opacity-60 bg-surface/30 border-dashed"
+                  : r.status === "pending"
+                    ? "border-amber-500/40 bg-amber-500/5"
+                    : "border-border/80"
+              }`}
+            >
+              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                <div className="flex items-start gap-3.5">
+                  {/* Photo Thumbnail */}
+                  {r.setupPhoto ? (
+                    <div
+                      onClick={() =>
+                        setZoomPhoto({
+                          url: r.setupPhoto!,
+                          caption: `${r.author}'s Desk Setup · ${r.city} (${r.productName})`,
+                        })
+                      }
+                      className="relative h-16 w-20 shrink-0 overflow-hidden rounded-2xl bg-surface border border-border/80 cursor-pointer group shadow-xs"
+                      title="Click to zoom setup photo"
+                    >
+                      <img
+                        src={r.setupPhoto}
+                        alt="Desk setup thumbnail"
+                        className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                      />
+                      <div className="absolute inset-0 bg-ink/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-[10px]">
+                        🔍
+                      </div>
+                      <div className="absolute bottom-1 left-1 rounded-full bg-background/90 px-1 py-0.5 text-[8px] font-mono font-bold text-foreground">
+                        📷 Setup
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="h-16 w-16 shrink-0 rounded-2xl bg-surface/80 border border-dashed flex items-center justify-center text-muted-foreground text-[10px] font-mono">
+                      No photo
+                    </div>
+                  )}
+
+                  <div className="space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-extrabold text-sm text-foreground">{r.author}</span>
+                      <span className="inline-flex items-center gap-0.5 font-mono text-xs text-muted-foreground bg-surface px-2 py-0.5 rounded-full border border-border/60">
+                        <MapPin className="h-3 w-3 text-primary" /> {r.city}
+                      </span>
+                      {r.verified && (
+                        <span className="inline-flex items-center gap-1 font-mono text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">
+                          <Check className="h-3 w-3" /> Verified Buyer
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 text-xs">
+                      <div className="flex text-amber-500">
+                        {Array.from({ length: r.rating }).map((_, i) => (
+                          <Star key={i} className="h-3.5 w-3.5 fill-current" />
+                        ))}
+                      </div>
+                      <span className="font-bold text-foreground">"{r.title}"</span>
+                      <span className="text-muted-foreground">·</span>
+                      <Link
+                        to="/product/$slug"
+                        params={{ slug: r.productSlug }}
+                        target="_blank"
+                        className="text-primary hover:underline font-mono text-[11px] font-medium inline-flex items-center gap-1"
+                      >
+                        <span>{r.productName}</span>
+                        <ExternalLink className="h-2.5 w-2.5" />
+                      </Link>
+                    </div>
+
+                    <p className="text-xs text-muted-foreground leading-relaxed line-clamp-3 pt-0.5">
+                      {r.comment}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Right Badges & Timestamps */}
+                <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-start gap-2 shrink-0 font-mono text-xs">
+                  <div className="flex items-center gap-1.5">
+                    {r.status === "approved" && (
+                      <span className="rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 px-2.5 py-0.5 text-[10px] font-bold">
+                        Approved ✓
+                      </span>
+                    )}
+                    {r.status === "pending" && (
+                      <span className="rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-400 px-2.5 py-0.5 text-[10px] font-bold">
+                        Pending Moderation
+                      </span>
+                    )}
+                    {r.status === "hidden" && (
+                      <span className="rounded-full bg-destructive/15 text-destructive px-2.5 py-0.5 text-[10px] font-bold">
+                        Hidden 🚫
+                      </span>
+                    )}
+                  </div>
+
+                  <span className="text-[10px] text-muted-foreground">
+                    {new Date(r.createdAt).toLocaleDateString("en-PK", {
+                      month: "short",
+                      day: "numeric",
+                      year: "numeric",
+                    })}
+                  </span>
+                </div>
+              </div>
+
+              {/* ACTION BUTTONS ROW */}
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/50 pt-3 text-xs font-mono">
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* Pin to Homepage Showcase */}
+                  <button
+                    type="button"
+                    onClick={() => onModerate(r.id, "toggle_featured")}
+                    className={`press rounded-full px-3 py-1 font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                      r.featuredOnHome
+                        ? "bg-primary text-primary-foreground shadow-xs"
+                        : "bg-surface border border-border/80 text-muted-foreground hover:text-foreground"
+                    }`}
+                    title="Toggle pinning this review to the homepage 3-card desk setup showcase"
+                  >
+                    {r.featuredOnHome ? (
+                      <>
+                        <Pin className="h-3 w-3 fill-current" />
+                        <span>Pinned on Homepage ★</span>
+                      </>
+                    ) : (
+                      <>
+                        <PinOff className="h-3 w-3" />
+                        <span>Pin to Homepage</span>
+                      </>
+                    )}
+                  </button>
+
+                  {/* Toggle Status (Approve / Hide) */}
+                  <button
+                    type="button"
+                    onClick={() => onModerate(r.id, "toggle_status")}
+                    className={`press rounded-full px-3 py-1 font-semibold transition-colors cursor-pointer border ${
+                      r.status === "approved"
+                        ? "bg-surface border-border/80 text-muted-foreground hover:text-destructive hover:border-destructive/40"
+                        : "bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-500 shadow-xs"
+                    }`}
+                  >
+                    {r.status === "approved" ? "Hide from Storefront" : "✓ Approve & Publish"}
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditingReview(r)}
+                    className="press rounded-full bg-surface border px-3 py-1 font-semibold text-muted-foreground hover:text-foreground hover:bg-muted cursor-pointer flex items-center gap-1"
+                  >
+                    <Edit3 className="h-3 w-3" />
+                    <span>Quick Edit</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (confirm(`Permanently delete review by ${r.author}?`)) {
+                        onModerate(r.id, "delete");
+                      }
+                    }}
+                    className="press rounded-full bg-destructive/10 text-destructive hover:bg-destructive/20 p-1.5 cursor-pointer"
+                    title="Delete Review"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ADD MANUAL REVIEW MODAL */}
+      {isAddModalOpen && (
+        <ManualReviewModal
+          products={products}
+          onClose={() => setIsAddModalOpen(false)}
+          onSave={(data) => {
+            onAddManualReview(data);
+            setIsAddModalOpen(false);
+          }}
+        />
+      )}
+
+      {/* EDIT REVIEW MODAL */}
+      {editingReview && (
+        <EditReviewModal
+          review={editingReview}
+          products={products}
+          onClose={() => setEditingReview(null)}
+          onSave={(updatedData) => {
+            onModerate(editingReview.id, "update", updatedData);
+            setEditingReview(null);
+          }}
+        />
+      )}
+
+      {/* PHOTO LIGHTBOX */}
+      {zoomPhoto && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4 backdrop-blur-sm cursor-zoom-out"
+          onClick={() => setZoomPhoto(null)}
+        >
+          <div
+            className="relative max-w-4xl max-h-[90vh] rounded-3xl overflow-hidden bg-background p-3 border shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => setZoomPhoto(null)}
+              className="absolute top-4 right-4 z-10 rounded-full bg-background/80 p-2 text-foreground hover:bg-background cursor-pointer"
+            >
+              <X className="h-5 w-5" />
+            </button>
+            <img
+              src={zoomPhoto.url}
+              alt=""
+              className="max-h-[80vh] w-auto mx-auto object-contain rounded-2xl"
+            />
+            <p className="mt-3 text-center text-xs font-mono text-muted-foreground">
+              {zoomPhoto.caption}
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ==========================================
+// MANUAL REVIEW MODAL (WHATSAPP FEEDBACK)
+// ==========================================
+function ManualReviewModal({
+  products,
+  onClose,
+  onSave,
+}: {
+  products: any[];
+  onClose: () => void;
+  onSave: (data: any) => void;
+}) {
+  const [productSlug, setProductSlug] = useState(products[0]?.slug ?? "glide-mouse");
+  const [author, setAuthor] = useState("");
+  const [city, setCity] = useState("Karachi");
+  const [rating, setRating] = useState(5);
+  const [title, setTitle] = useState("");
+  const [comment, setComment] = useState("");
+  const [setupPhoto, setSetupPhoto] = useState("");
+  const [featuredOnHome, setFeaturedOnHome] = useState(false);
+  const [verified, setVerified] = useState(true);
+  const [isUploading, setIsUploading] = useState(false);
+
+  const matchedProduct = products.find((p) => p.slug === productSlug);
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setIsUploading(true);
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const base64 = (reader.result as string).split(",")[1];
+        try {
+          const res = await uploadProductImage({
+            data: {
+              fileName: file.name,
+              contentType: file.type || "image/jpeg",
+              base64Data: base64,
+            },
+          });
+          if (res.publicUrl) {
+            setSetupPhoto(res.publicUrl);
+            toast.success("Desk setup photo uploaded successfully!");
+          }
+        } catch (uploadErr: any) {
+          toast.error(uploadErr.message || "Failed to upload photo");
+        } finally {
+          setIsUploading(false);
+        }
+      };
+      reader.readAsDataURL(file);
+    } catch {
+      setIsUploading(false);
+      toast.error("Could not process photo file");
+    }
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!author.trim() || !title.trim() || !comment.trim()) {
+      toast.error("Please fill in author, headline, and comment");
+      return;
+    }
+    onSave({
+      productSlug,
+      productName: matchedProduct?.name || productSlug,
+      author: author.trim(),
+      city: city.trim(),
+      rating,
+      title: title.trim(),
+      comment: comment.trim(),
+      setupPhoto: setupPhoto.trim() || undefined,
+      featuredOnHome,
+      verified,
+      status: "approved",
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/50 p-4 backdrop-blur-xs overflow-y-auto">
+      <div className="w-full max-w-lg rounded-3xl bg-background p-6 md:p-8 shadow-2xl my-8 max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between border-b pb-4">
+          <div>
+            <h3 className="font-extrabold text-xl">Add WhatsApp / Manual Review</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Publish customer testimonials or setup photos received over WhatsApp, SMS, or Instagram.
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="press rounded-full bg-surface p-2 text-muted-foreground hover:text-foreground cursor-pointer"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="mt-5 space-y-4 text-xs">
+          <div>
+            <label className="block font-mono uppercase text-muted-foreground font-bold mb-1">
+              Select Gadget
+            </label>
+            <select
+              value={productSlug}
+              onChange={(e) => setProductSlug(e.target.value)}
+              className="w-full rounded-xl border bg-background p-2.5 font-semibold text-xs"
+              required
+            >
+              {products.map((p) => (
+                <option key={p.slug} value={p.slug}>
+                  {p.name} ({formatPKR(p.price)})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block font-mono uppercase text-muted-foreground font-bold mb-1">
+                Customer Name
+              </label>
+              <input
+                type="text"
+                value={author}
+                onChange={(e) => setAuthor(e.target.value)}
+                placeholder="e.g. Daniyal Shah"
+                className="w-full rounded-xl border bg-background p-2.5 text-xs font-semibold"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block font-mono uppercase text-muted-foreground font-bold mb-1">
+                Pakistani City
+              </label>
+              <select
+                value={city}
+                onChange={(e) => setCity(e.target.value)}
+                className="w-full rounded-xl border bg-background p-2.5 text-xs font-semibold"
+              >
+                {[
+                  "Karachi",
+                  "Lahore",
+                  "Islamabad",
+                  "Rawalpindi",
+                  "Peshawar",
+                  "Faisalabad",
+                  "Multan",
+                  "Quetta",
+                  "Sialkot",
+                  "Gujranwala",
+                  "Other Pakistan City",
+                ].map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label className="block font-mono uppercase text-muted-foreground font-bold mb-1">
+              Star Rating
+            </label>
+            <div className="flex items-center gap-2 py-1">
+              {[1, 2, 3, 4, 5].map((star) => (
+                <button
+                  key={star}
+                  type="button"
+                  onClick={() => setRating(star)}
+                  className="press p-1 cursor-pointer"
+                >
+                  <Star
+                    className={`h-6 w-6 ${
+                      star <= rating ? "fill-amber-500 text-amber-500" : "text-muted-foreground"
+                    }`}
+                  />
+                </button>
+              ))}
+              <span className="font-mono text-xs font-bold text-muted-foreground ml-2">
+                {rating} of 5 Stars
+              </span>
+            </div>
+          </div>
+
+          <div>
+            <label className="block font-mono uppercase text-muted-foreground font-bold mb-1">
+              Headline
+            </label>
+            <input
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="e.g. Cleanest cable-free setup in Saddar"
+              className="w-full rounded-xl border bg-background p-2.5 text-xs font-semibold"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block font-mono uppercase text-muted-foreground font-bold mb-1">
+              Customer Feedback
+            </label>
+            <textarea
+              rows={3}
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+              placeholder="Copy message from WhatsApp or customer text..."
+              className="w-full rounded-xl border bg-background p-2.5 text-xs"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block font-mono uppercase text-muted-foreground font-bold mb-1">
+              Desk Setup Photo
+            </label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={setupPhoto}
+                onChange={(e) => setSetupPhoto(e.target.value)}
+                placeholder="https://... photo URL"
+                className="flex-1 rounded-xl border bg-background p-2.5 font-mono text-xs"
+              />
+              <label className="press rounded-xl bg-surface border px-3 py-2 cursor-pointer flex items-center gap-1 font-mono text-xs text-muted-foreground hover:text-foreground">
+                <Upload className="h-3.5 w-3.5" />
+                <span>{isUploading ? "Uploading…" : "Upload"}</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleFileUpload}
+                  className="hidden"
+                  disabled={isUploading}
+                />
+              </label>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-4 pt-2 border-t font-mono">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={verified}
+                onChange={(e) => setVerified(e.target.checked)}
+                className="h-4 w-4 rounded accent-primary"
+              />
+              <span>Verified Buyer Badge</span>
+            </label>
+
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={featuredOnHome}
+                onChange={(e) => setFeaturedOnHome(e.target.checked)}
+                className="h-4 w-4 rounded accent-primary"
+              />
+              <span className="font-bold text-primary">Pin to Homepage Showcase ★</span>
+            </label>
+          </div>
+
+          <div className="flex justify-end gap-3 pt-3 border-t">
+            <button
+              type="button"
+              onClick={onClose}
+              className="press rounded-full bg-surface px-4 py-2 font-medium"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="press rounded-full bg-primary px-6 py-2 font-bold text-primary-foreground shadow-sm hover:brightness-110"
+            >
+              Publish Review
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
+// EDIT REVIEW MODAL
+// ==========================================
+function EditReviewModal({
+  review,
+  products,
+  onClose,
+  onSave,
+}: {
+  review: StoredReview;
+  products: any[];
+  onClose: () => void;
+  onSave: (data: any) => void;
+}) {
+  const [author, setAuthor] = useState(review.author);
+  const [city, setCity] = useState(review.city);
+  const [rating, setRating] = useState(review.rating);
+  const [title, setTitle] = useState(review.title);
+  const [comment, setComment] = useState(review.comment);
+  const [setupPhoto, setSetupPhoto] = useState(review.setupPhoto || "");
+  const [status, setStatus] = useState<"approved" | "pending" | "hidden">(review.status);
+  const [featuredOnHome, setFeaturedOnHome] = useState(review.featuredOnHome);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onSave({
+      author: author.trim(),
+      city: city.trim(),
+      rating,
+      title: title.trim(),
+      comment: comment.trim(),
+      setupPhoto: setupPhoto.trim() || undefined,
+      status,
+      featuredOnHome,
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/50 p-4 backdrop-blur-xs overflow-y-auto">
+      <div className="w-full max-w-lg rounded-3xl bg-background p-6 md:p-8 shadow-2xl my-8 max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between border-b pb-4">
+          <div>
+            <h3 className="font-extrabold text-xl">Edit Customer Review</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Update buyer details, headline, feedback, or desk setup photo.
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="press rounded-full bg-surface p-2 text-muted-foreground hover:text-foreground cursor-pointer"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="mt-5 space-y-4 text-xs">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block font-mono uppercase text-muted-foreground font-bold mb-1">
+                Customer Name
+              </label>
+              <input
+                type="text"
+                value={author}
+                onChange={(e) => setAuthor(e.target.value)}
+                className="w-full rounded-xl border bg-background p-2.5 text-xs font-semibold"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block font-mono uppercase text-muted-foreground font-bold mb-1">
+                Pakistani City
+              </label>
+              <input
+                type="text"
+                value={city}
+                onChange={(e) => setCity(e.target.value)}
+                className="w-full rounded-xl border bg-background p-2.5 text-xs font-semibold"
+                required
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block font-mono uppercase text-muted-foreground font-bold mb-1">
+              Rating
+            </label>
+            <div className="flex items-center gap-2 py-1">
+              {[1, 2, 3, 4, 5].map((star) => (
+                <button
+                  key={star}
+                  type="button"
+                  onClick={() => setRating(star)}
+                  className="press p-1 cursor-pointer"
+                >
+                  <Star
+                    className={`h-6 w-6 ${
+                      star <= rating ? "fill-amber-500 text-amber-500" : "text-muted-foreground"
+                    }`}
+                  />
+                </button>
+              ))}
+              <span className="font-mono text-xs font-bold text-muted-foreground ml-2">
+                {rating} Stars
+              </span>
+            </div>
+          </div>
+
+          <div>
+            <label className="block font-mono uppercase text-muted-foreground font-bold mb-1">
+              Headline
+            </label>
+            <input
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              className="w-full rounded-xl border bg-background p-2.5 text-xs font-semibold"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block font-mono uppercase text-muted-foreground font-bold mb-1">
+              Feedback Comment
+            </label>
+            <textarea
+              rows={4}
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+              className="w-full rounded-xl border bg-background p-2.5 text-xs"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block font-mono uppercase text-muted-foreground font-bold mb-1">
+              Desk Setup Photo URL
+            </label>
+            <input
+              type="text"
+              value={setupPhoto}
+              onChange={(e) => setSetupPhoto(e.target.value)}
+              placeholder="https://..."
+              className="w-full rounded-xl border bg-background p-2.5 font-mono text-xs"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 pt-2 border-t">
+            <div>
+              <label className="block font-mono uppercase text-muted-foreground font-bold mb-1">
+                Moderation Status
+              </label>
+              <select
+                value={status}
+                onChange={(e) => setStatus(e.target.value as any)}
+                className="w-full rounded-xl border bg-background p-2.5 text-xs font-semibold"
+              >
+                <option value="approved">Approved (Live)</option>
+                <option value="pending">Pending Moderation</option>
+                <option value="hidden">Hidden from Store</option>
+              </select>
+            </div>
+
+            <div className="flex items-center pt-5">
+              <label className="flex items-center gap-2 cursor-pointer font-mono text-xs">
+                <input
+                  type="checkbox"
+                  checked={featuredOnHome}
+                  onChange={(e) => setFeaturedOnHome(e.target.checked)}
+                  className="h-4 w-4 rounded accent-primary"
+                />
+                <span className="font-bold text-primary">Pin to Homepage ★</span>
+              </label>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-3 pt-3 border-t">
+            <button
+              type="button"
+              onClick={onClose}
+              className="press rounded-full bg-surface px-4 py-2 font-medium"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="press rounded-full bg-primary px-6 py-2 font-bold text-primary-foreground shadow-sm hover:brightness-110"
+            >
+              Save Changes
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );

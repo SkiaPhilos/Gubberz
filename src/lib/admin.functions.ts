@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { DEFAULT_STORED_REVIEWS, type StoredReview } from "@/lib/reviews";
 
 const sectionTypes = [
   "hero",
@@ -255,13 +256,7 @@ export const saveStoreSetting = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) =>
     z
       .object({
-        key: z.enum([
-          "whatsapp_number",
-          "contact_email",
-          "advance_payment_discount_percent",
-          "delivery_fee",
-          "payment_methods",
-        ]),
+        key: z.string().trim().min(1).max(100),
         value: z.unknown(),
       })
       .parse(input),
@@ -273,6 +268,130 @@ export const saveStoreSetting = createServerFn({ method: "POST" })
       .upsert({ key: data.key, value: data.value as never });
     if (error) throw new Error(error.message);
     return { ok: true };
+  });
+
+export const moderateReview = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) =>
+    z
+      .object({
+        reviewId: z.string().min(1),
+        action: z.enum(["toggle_status", "toggle_featured", "delete", "update"]),
+        data: z
+          .object({
+            author: z.string().optional(),
+            city: z.string().optional(),
+            rating: z.number().int().min(1).max(5).optional(),
+            title: z.string().optional(),
+            comment: z.string().optional(),
+            setupPhoto: z.string().optional(),
+            status: z.enum(["approved", "pending", "hidden"]).optional(),
+            featuredOnHome: z.boolean().optional(),
+          })
+          .optional(),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data, context }) => {
+    const db = await getAdminDbClient(context);
+    const { data: row } = await db
+      .from("store_settings")
+      .select("value")
+      .eq("key", "customer_reviews")
+      .maybeSingle();
+
+    let list: StoredReview[] =
+      row && Array.isArray(row.value) && (row.value as any[]).length > 0
+        ? (row.value as StoredReview[])
+        : [...DEFAULT_STORED_REVIEWS];
+
+    if (data.action === "delete") {
+      list = list.filter((r) => r.id !== data.reviewId);
+    } else if (data.action === "toggle_status") {
+      list = list.map((r) => {
+        if (r.id !== data.reviewId) return r;
+        const nextStatus = r.status === "approved" ? "hidden" : "approved";
+        return { ...r, status: nextStatus };
+      });
+    } else if (data.action === "toggle_featured") {
+      list = list.map((r) => {
+        if (r.id !== data.reviewId) return r;
+        return { ...r, featuredOnHome: !r.featuredOnHome };
+      });
+    } else if (data.action === "update" && data.data) {
+      list = list.map((r) => {
+        if (r.id !== data.reviewId) return r;
+        return {
+          ...r,
+          ...data.data,
+          setupPhoto: data.data?.setupPhoto !== undefined ? data.data.setupPhoto : r.setupPhoto,
+        };
+      });
+    }
+
+    const { error } = await db
+      .from("store_settings")
+      .upsert({ key: "customer_reviews", value: list as any }, { onConflict: "key" });
+
+    if (error) throw new Error(error.message);
+    return { ok: true, reviews: list };
+  });
+
+export const addManualReview = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) =>
+    z
+      .object({
+        productSlug: z.string().min(1),
+        productName: z.string().min(1),
+        author: z.string().trim().min(2).max(100),
+        city: z.string().trim().min(2).max(80),
+        rating: z.number().int().min(1).max(5),
+        title: z.string().trim().min(2).max(150),
+        comment: z.string().trim().min(5).max(1500),
+        setupPhoto: z.string().optional(),
+        featuredOnHome: z.boolean().default(false),
+        verified: z.boolean().default(true),
+        status: z.enum(["approved", "pending", "hidden"]).default("approved"),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data, context }) => {
+    const db = await getAdminDbClient(context);
+    const { data: row } = await db
+      .from("store_settings")
+      .select("value")
+      .eq("key", "customer_reviews")
+      .maybeSingle();
+
+    const existing: StoredReview[] =
+      row && Array.isArray(row.value) && (row.value as any[]).length > 0
+        ? (row.value as StoredReview[])
+        : [...DEFAULT_STORED_REVIEWS];
+
+    const newRev: StoredReview = {
+      id: "rev-adm-" + Math.random().toString(36).slice(2, 10),
+      productSlug: data.productSlug,
+      productName: data.productName,
+      author: data.author,
+      city: data.city,
+      rating: data.rating,
+      title: data.title,
+      comment: data.comment,
+      verified: data.verified,
+      setupPhoto: data.setupPhoto?.trim() || undefined,
+      featuredOnHome: data.featuredOnHome,
+      status: data.status,
+      createdAt: new Date().toISOString(),
+    };
+
+    const updated = [newRev, ...existing];
+    const { error } = await db
+      .from("store_settings")
+      .upsert({ key: "customer_reviews", value: updated as any }, { onConflict: "key" });
+
+    if (error) throw new Error(error.message);
+    return { ok: true, review: newRev };
   });
 
 export const saveCategory = createServerFn({ method: "POST" })

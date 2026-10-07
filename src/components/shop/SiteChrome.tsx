@@ -2,7 +2,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
-import { Heart, Search, X, ArrowRight, Truck, Tag, Check, User as UserIcon, LogOut, Shield } from "lucide-react";
+import { Heart, Search, X, ArrowRight, Truck, Tag, Check, User as UserIcon, LogOut, Shield, Star } from "lucide-react";
 import { toast } from "sonner";
 import { useCart } from "@/lib/cart";
 import { useWishlist } from "@/lib/discovery";
@@ -176,6 +176,15 @@ export function SiteHeader() {
               {c.name}
             </Link>
           ))}
+          <Link
+            to="/reviews"
+            className="text-muted-foreground transition-colors hover:text-foreground flex items-center gap-1 font-medium"
+          >
+            <span>Reviews</span>
+            <span className="rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-mono font-bold text-amber-500">
+              4.9★
+            </span>
+          </Link>
         </nav>
 
         {/* Desktop Search with Autocomplete Dropdown */}
@@ -489,6 +498,23 @@ export function SiteHeader() {
                   </motion.div>
                 ),
               )}
+              <motion.div
+                initial={{ y: 16, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                transition={{ delay: 0.2 }}
+                className="pt-2 border-t mt-2"
+              >
+                <Link
+                  to="/reviews"
+                  onClick={() => setMenu(false)}
+                  className="flex items-center justify-between text-2xl font-bold tracking-tight text-primary"
+                >
+                  <span>Customer Reviews</span>
+                  <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-mono font-bold text-amber-500">
+                    4.9★ Verified
+                  </span>
+                </Link>
+              </motion.div>
             </nav>
           </motion.div>
         )}
@@ -823,6 +849,9 @@ export function SiteFooter() {
           </Link>
           <Link to="/order" className="block hover:text-ink-foreground">
             Track your order
+          </Link>
+          <Link to="/reviews" className="block hover:text-ink-foreground">
+            Customer Reviews & Desk Setups
           </Link>
           <Link to="/policies" className="block text-primary hover:underline font-semibold">
             Store Policies & Guarantees

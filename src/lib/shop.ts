@@ -4,6 +4,7 @@ import {
   getProduct,
   getProducts,
   getStoreSettings,
+  getPublicReviews,
   type Product,
 } from "./catalog.functions";
 
@@ -72,18 +73,51 @@ export function imageSrc(key: string | undefined): string {
 
 /** Provides multiple gallery photos for any product */
 export function productGallery(p: Product): { src: string; label: string }[] {
-  // If product already has multiple uploaded images, use them
-  if (p.images && p.images.length > 1) {
-    return p.images.map((img, idx) => ({
-      src: imageSrc(img),
-      label: idx === 0 ? "Front view" : idx === 1 ? "Side angle" : `View ${idx + 1}`,
+  const imagesList: { key: string; label: string }[] = [];
+
+  // Add primary images from product
+  if (Array.isArray(p.images) && p.images.length > 0) {
+    p.images.forEach((img, idx) => {
+      imagesList.push({
+        key: img,
+        label:
+          idx === 0
+            ? "Studio Hero"
+            : idx === 1
+              ? "Profile View"
+              : idx === 2
+                ? "In the Box & Details"
+                : `Photo ${idx + 1}`,
+      });
+    });
+  } else {
+    imagesList.push({ key: "headphones", label: "Studio Hero" });
+  }
+
+  // Include any variant-specific color photos that aren't already in the list
+  const v = (p.variants && typeof p.variants === "object" ? p.variants : {}) as any;
+  if (Array.isArray(v.colors)) {
+    v.colors.forEach((c: any) => {
+      if (c.image && !imagesList.some((item) => item.key === c.image)) {
+        imagesList.push({
+          key: c.image,
+          label: `${c.name || "Color"} Edition`,
+        });
+      }
+    });
+  }
+
+  // If we have multiple images, return them
+  if (imagesList.length > 1) {
+    return imagesList.map((item) => ({
+      src: imageSrc(item.key),
+      label: item.label,
     }));
   }
 
-  const primaryKey = p.images[0] ?? "headphones";
+  // Otherwise, synthesize realistic studio views & accessory pairings
+  const primaryKey = imagesList[0]?.key ?? "headphones";
   const primarySrc = imageSrc(primaryKey);
-
-  // Return realistic studio views and accessory detail shots for the product
   const secondaryKey =
     primaryKey === "headphones"
       ? "earbuds"
@@ -241,15 +275,22 @@ export function getProductVariants(p: Product): ProductVariantInfo {
     const v = p.variants as any;
     const colors = Array.isArray(v.colors) && v.colors.length > 0 ? v.colors : [];
     const sizes = Array.isArray(v.sizes) && v.sizes.length > 0 ? v.sizes : [];
-    if (colors.length > 0 || sizes.length > 0) {
+    const inBox = Array.isArray(v.inBox) && v.inBox.length > 0 ? v.inBox : undefined;
+    if (colors.length > 0 || sizes.length > 0 || inBox) {
       return {
         colors: colors.length > 0 ? colors : [{ name: "Standard", hex: "#1f2123" }],
-        variantType: typeof v.variantType === "string" && v.variantType ? v.variantType : "Size / Option",
-        sizes: sizes.length > 0 ? sizes : [{ name: "Standard", extraPrice: 0 }],
-        inBox:
-          Array.isArray(v.inBox) && v.inBox.length > 0
-            ? v.inBox
-            : [`${p.name}`, "Official Packaging", "Warranty Card"],
+        variantType:
+          typeof v.variantType === "string" && v.variantType ? v.variantType : "Size / Option",
+        sizes:
+          sizes.length > 0
+            ? sizes.map((s: any) => ({
+                name: s.name,
+                extraPrice: Number(s.extraPrice) || 0,
+                stock: typeof s.stock === "number" ? s.stock : undefined,
+                specsNote: s.specsNote,
+              }))
+            : [{ name: "Standard", extraPrice: 0 }],
+        inBox: inBox || [`${p.name}`, "Official Packaging", "Warranty Card"],
       };
     }
   }
@@ -301,3 +342,9 @@ export const productsQuery = (s: ShopSearch & { featured?: boolean } = {}) =>
   queryOptions({ queryKey: ["products", s], queryFn: () => getProducts({ data: s }) });
 export const productQuery = (slug: string) =>
   queryOptions({ queryKey: ["product", slug], queryFn: () => getProduct({ data: { slug } }) });
+export const publicReviewsQuery = (filters: { productSlug?: string; city?: string } = {}) =>
+  queryOptions({
+    queryKey: ["public-reviews", filters],
+    queryFn: () => getPublicReviews({ data: filters }),
+  });
+
